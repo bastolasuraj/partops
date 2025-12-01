@@ -43,6 +43,11 @@ class Controller
      */
     protected function redirect(string $url): void
     {
+        // If url starts with /, prepend APP_URL
+        if (strpos($url, '/') === 0) {
+            $url = url($url);
+        }
+        
         header("Location: {$url}");
         exit;
     }

@@ -65,8 +65,25 @@ class SupplierController extends Controller
             $this->json(['error' => 'Invalid CSRF token'], 403);
         }
 
-        // TODO: Implement supplier creation
-        $this->json(['message' => 'Supplier creation not yet implemented'], 501);
+        $name = trim($this->post('name', ''));
+        
+        if (empty($name)) {
+            $this->json(['error' => 'Supplier Name is required'], 400);
+        }
+
+        $data = [
+            'name' => $name,
+            'contact_name' => trim($this->post('contact_name', '')),
+            'email' => trim($this->post('email', '')),
+            'phone' => trim($this->post('phone', '')),
+            'address' => trim($this->post('address', '')),
+            'reorder_url' => trim($this->post('reorder_url', '')),
+            'is_preferred' => $this->post('is_preferred') ? 1 : 0,
+            'is_active' => $this->post('is_active') ? 1 : 0
+        ];
+
+        $this->supplierModel->create($data);
+        $this->redirect('/suppliers');
     }
 
     public function edit(string $id): void
@@ -95,8 +112,25 @@ class SupplierController extends Controller
             $this->json(['error' => 'Invalid CSRF token'], 403);
         }
 
-        // TODO: Implement supplier update
-        $this->json(['message' => 'Supplier update not yet implemented'], 501);
+        $name = trim($this->post('name', ''));
+        
+        if (empty($name)) {
+            $this->json(['error' => 'Supplier Name is required'], 400);
+        }
+
+        $data = [
+            'name' => $name,
+            'contact_name' => trim($this->post('contact_name', '')),
+            'email' => trim($this->post('email', '')),
+            'phone' => trim($this->post('phone', '')),
+            'address' => trim($this->post('address', '')),
+            'reorder_url' => trim($this->post('reorder_url', '')),
+            'is_preferred' => $this->post('is_preferred') ? 1 : 0,
+            'is_active' => $this->post('is_active') ? 1 : 0
+        ];
+
+        $this->supplierModel->update((int)$id, $data);
+        $this->redirect('/suppliers');
     }
 
     public function delete(string $id): void

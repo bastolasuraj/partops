@@ -79,7 +79,7 @@
 <body>
     <div class="login-container">
         <h1>PartOps Login</h1>
-        <form action="/login" method="POST">
+        <form action="<?= url('/login') ?>" method="POST">
             <input type="hidden" name="_csrf_token" value="<?= htmlspecialchars($csrf_token) ?>">
             
             <div class="form-group">

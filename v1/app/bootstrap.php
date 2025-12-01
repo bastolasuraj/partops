@@ -23,6 +23,15 @@ if (session_status() === PHP_SESSION_NONE) {
 // Load environment configuration
 $config = Config::load(__DIR__ . '/../.env');
 
+// Define base URL constant and helper function
+define('APP_URL', rtrim($config->get('APP_URL', ''), '/'));
+
+if (!function_exists('url')) {
+    function url(string $path = ''): string {
+        return APP_URL . '/' . ltrim($path, '/');
+    }
+}
+
 // Set error reporting based on environment
 if ($config->get('APP_DEBUG', false)) {
     error_reporting(E_ALL);

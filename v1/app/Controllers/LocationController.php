@@ -65,8 +65,31 @@ class LocationController extends Controller
             $this->json(['error' => 'Invalid CSRF token'], 403);
         }
 
-        // TODO: Implement location creation
-        $this->json(['message' => 'Location creation not yet implemented'], 501);
+        $aisle = trim($this->post('aisle', ''));
+        $shelf = trim($this->post('shelf', ''));
+        $bay = trim($this->post('bay', ''));
+        
+        if (empty($aisle) || empty($shelf) || empty($bay)) {
+            $this->json(['error' => 'Aisle, Shelf, and Bay are required'], 400);
+        }
+
+        $data = [
+            'aisle' => $aisle,
+            'shelf' => $shelf,
+            'bay' => $bay,
+            'bin' => trim($this->post('bin', '')),
+            'is_active' => $this->post('is_active') ? 1 : 0
+        ];
+
+        try {
+            $this->locationModel->create($data);
+            $this->redirect('/locations');
+        } catch (\PDOException $e) {
+            if ($e->getCode() == 23000) {
+                 $this->json(['error' => 'Location already exists'], 400);
+            }
+            throw $e;
+        }
     }
 
     public function edit(string $id): void
@@ -95,8 +118,31 @@ class LocationController extends Controller
             $this->json(['error' => 'Invalid CSRF token'], 403);
         }
 
-        // TODO: Implement location update
-        $this->json(['message' => 'Location update not yet implemented'], 501);
+        $aisle = trim($this->post('aisle', ''));
+        $shelf = trim($this->post('shelf', ''));
+        $bay = trim($this->post('bay', ''));
+        
+        if (empty($aisle) || empty($shelf) || empty($bay)) {
+            $this->json(['error' => 'Aisle, Shelf, and Bay are required'], 400);
+        }
+
+        $data = [
+            'aisle' => $aisle,
+            'shelf' => $shelf,
+            'bay' => $bay,
+            'bin' => trim($this->post('bin', '')),
+            'is_active' => $this->post('is_active') ? 1 : 0
+        ];
+
+        try {
+            $this->locationModel->update((int)$id, $data);
+            $this->redirect('/locations');
+        } catch (\PDOException $e) {
+            if ($e->getCode() == 23000) {
+                 $this->json(['error' => 'Location already exists'], 400);
+            }
+            throw $e;
+        }
     }
 
     public function delete(string $id): void

@@ -34,6 +34,26 @@ class Application
             $method = $_SERVER['REQUEST_METHOD'];
             $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
+            // Handle subdirectory deployment if APP_URL has a path
+            $appUrl = $this->config->get('APP_URL');
+            if ($appUrl) {
+                $appPath = parse_url($appUrl, PHP_URL_PATH);
+                // Ensure we don't strip too much if appPath is "/"
+                if ($appPath && $appPath !== '/') {
+                    // Trim trailing slash from appPath for consistent matching
+                    $appPath = rtrim($appPath, '/');
+                    
+                    if (strpos($uri, $appPath) === 0) {
+                        $uri = substr($uri, strlen($appPath));
+                    }
+                }
+            }
+            
+            // Ensure URI starts with /
+            if (empty($uri) || $uri[0] !== '/') {
+                $uri = '/' . $uri;
+            }
+
             // Dispatch the request
             $this->router->dispatch($method, $uri);
         } catch (\Exception $e) {

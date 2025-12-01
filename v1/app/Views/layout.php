@@ -151,14 +151,14 @@
             <h1>PartOps</h1>
             <nav>
                 <ul>
-                    <li><a href="/">Dashboard</a></li>
-                    <li><a href="/parts">Parts</a></li>
-                    <li><a href="/suppliers">Suppliers</a></li>
-                    <li><a href="/locations">Locations</a></li>
-                    <li><a href="/inventory">Inventory</a></li>
-                    <li><a href="/work-orders">Work Orders</a></li>
+                    <li><a href="<?= url('/') ?>">Dashboard</a></li>
+                    <li><a href="<?= url('/parts') ?>">Parts</a></li>
+                    <li><a href="<?= url('/suppliers') ?>">Suppliers</a></li>
+                    <li><a href="<?= url('/locations') ?>">Locations</a></li>
+                    <li><a href="<?= url('/inventory') ?>">Inventory</a></li>
+                    <li><a href="<?= url('/work-orders') ?>">Work Orders</a></li>
                     <li>
-                        <form action="/logout" method="POST" style="display: inline;">
+                        <form action="<?= url('/logout') ?>" method="POST" style="display: inline;">
                             <input type="hidden" name="_csrf_token" value="<?= $_SESSION['_csrf_token'] ?? '' ?>">
                             <button type="submit" class="btn btn-secondary">Logout</button>
                         </form>

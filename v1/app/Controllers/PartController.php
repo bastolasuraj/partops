@@ -59,8 +59,31 @@ class PartController extends Controller
             $this->json(['error' => 'Invalid CSRF token'], 403);
         }
 
-        // TODO: Implement part creation logic
-        $this->json(['message' => 'Part creation not yet implemented'], 501);
+        $name = trim($this->post('name', ''));
+        $anchorSlug = trim($this->post('anchor_slug', ''));
+        
+        if (empty($name) || empty($anchorSlug)) {
+            $this->json(['error' => 'Name and Anchor Slug are required'], 400);
+        }
+
+        $data = [
+            'name' => $name,
+            'anchor_slug' => $anchorSlug,
+            'description' => trim($this->post('description', '')),
+            'notes' => trim($this->post('notes', '')),
+            'is_active' => $this->post('is_active') ? 1 : 0
+        ];
+
+        try {
+            $this->partModel->create($data);
+            $this->redirect('/parts');
+        } catch (\PDOException $e) {
+            // Check for duplicate entry
+            if ($e->getCode() == 23000) {
+                 $this->json(['error' => 'Anchor Slug already exists'], 400);
+            }
+            throw $e;
+        }
     }
 
     public function edit(string $id): void
@@ -89,8 +112,30 @@ class PartController extends Controller
             $this->json(['error' => 'Invalid CSRF token'], 403);
         }
 
-        // TODO: Implement part update logic
-        $this->json(['message' => 'Part update not yet implemented'], 501);
+        $name = trim($this->post('name', ''));
+        $anchorSlug = trim($this->post('anchor_slug', ''));
+        
+        if (empty($name) || empty($anchorSlug)) {
+            $this->json(['error' => 'Name and Anchor Slug are required'], 400);
+        }
+
+        $data = [
+            'name' => $name,
+            'anchor_slug' => $anchorSlug,
+            'description' => trim($this->post('description', '')),
+            'notes' => trim($this->post('notes', '')),
+            'is_active' => $this->post('is_active') ? 1 : 0
+        ];
+
+        try {
+            $this->partModel->update((int)$id, $data);
+            $this->redirect('/parts');
+        } catch (\PDOException $e) {
+            if ($e->getCode() == 23000) {
+                 $this->json(['error' => 'Anchor Slug already exists'], 400);
+            }
+            throw $e;
+        }
     }
 
     public function delete(string $id): void
@@ -110,7 +155,16 @@ class PartController extends Controller
         $this->requireAuth();
         $query = $this->get('q', '');
         
-        // TODO: Implement fulltext search
-        $this->json(['message' => 'Search not yet implemented'], 501);
+        if (empty($query)) {
+            $this->redirect('/parts');
+        }
+
+        $parts = $this->partModel->search($query);
+        
+        $this->view('parts.index', [
+            'title' => 'Search Results: ' . $query, 
+            'parts' => $parts,
+            'query' => $query
+        ]);
     }
 }
