@@ -1,0 +1,29 @@
+# Environment
+.env
+
+# Dependencies
+/vendor/
+composer.lock
+
+# Storage
+/storage/logs/*
+/storage/cache/*
+/storage/tmp/*
+!/storage/logs/.gitkeep
+!/storage/cache/.gitkeep
+!/storage/tmp/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+/public/css/
+/public/js/

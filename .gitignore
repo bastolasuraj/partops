@@ -1,0 +1,101 @@
+# dependencies and vendors
+/vendor/
+/node_modules/
+/bower_components/
+
+# ignore current project files/folders
+/.qodo/
+/AGENTS.md
+/composer.json
+/docs/
+/GEMINI.md
+/image.png
+/index.php
+/prototype/
+/vendor/
+/composer.lock
+/err.log
+
+# php composer artifacts
+composer.lock
+
+# environment and secrets
+.env
+.env.*.local
+.env.local
+.envrc
+*.secret
+*.key
+
+# logs and runtime
+*.log
+logs/
+storage/*.log
+storage/logs/
+storage/cache/
+storage/tmp/
+tmp/
+temp/
+.cache/
+.cache-loader/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# build outputs
+dist/
+build/
+.cache/
+coverage/
+reports/
+
+# ide/editor
+.idea/
+.vscode/
+*.iml
+
+# compiled assets
+public/build/
+public/assets/build/
+resources/css/*.min.css
+resources/js/*.min.js
+*.map
+
+# os files
+.DS_Store
+.DS_Store?
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Icon?
+desktop.ini
+
+# editor swap/backup files
+*.swp
+*.swo
+*~
+*.bak
+
+# archives
+*.tgz
+*.zip
+*.tar
+*.gz
+
+# tests caches
+.phpunit.result.cache
+coverage.xml
+junit.xml
+
+# latex/pdf temp if used
+*.aux
+*.out
+*.toc
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+
+# image tooling caches
+*.orig
