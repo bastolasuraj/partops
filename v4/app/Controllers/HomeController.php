@@ -12,7 +12,7 @@ class HomeController
 {
     public function index(): void
     {
-        View::render('home/index');
+        View::redirect('/dashboard');
     }
 
     public function dashboard(): void

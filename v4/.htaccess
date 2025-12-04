@@ -2,14 +2,17 @@
     RewriteEngine On
 
     RewriteBase /partops/v4/
+    
+    # Prevent directory listing
+    Options -Indexes
+    DirectoryIndex index.php
 
     # Canonicalize any typed /public URL back to the clean APP_URL
     RewriteCond %{THE_REQUEST} \s/partops/v4/public/([^\s?]*) [NC]
     RewriteRule ^public/(.*)$ /partops/v4/$1 [R=301,L]
 
-    # Let existing files or directories pass through untouched
-    RewriteCond %{REQUEST_FILENAME} -f [OR]
-    RewriteCond %{REQUEST_FILENAME} -d
+    # Let existing files pass through untouched
+    RewriteCond %{REQUEST_FILENAME} -f
     RewriteRule ^ - [L]
 
     # Internally route everything else through public/
