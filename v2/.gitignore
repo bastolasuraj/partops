@@ -1,0 +1,31 @@
+# Dependencies
+/vendor/
+
+# Environment
+.env
+*.env.local
+
+# Storage
+/storage/logs/*
+/storage/cache/*
+/storage/tmp/*
+!storage/logs/.gitkeep
+!storage/cache/.gitkeep
+!storage/tmp/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Composer
+composer.phar
+
+# Python
+__pycache__/
+*.pyc

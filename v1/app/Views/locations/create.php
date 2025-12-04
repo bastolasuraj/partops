@@ -6,22 +6,22 @@
     <a href="<?= url('/locations') ?>" class="btn btn-secondary">&larr; Back to Locations</a>
 </div>
 
-<div style="background: rgba(255, 255, 255, 0.05); padding: 2rem; border-radius: 8px;">
+<div style="background: white; padding: 2rem; border-radius: 8px;">
     <form action="<?= url('/locations') ?>" method="POST">
         <input type="hidden" name="_csrf_token" value="<?= $_SESSION['_csrf_token'] ?? '' ?>">
         
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
             <div class="form-group">
                 <label for="aisle">Aisle <span style="color: red;">*</span></label>
-                <input type="text" id="aisle" name="aisle" required placeholder="e.g. A1">
+                <input type="text" id="aisle" name="aisle" required placeholder="Aisle A1">
             </div>
             <div class="form-group">
                 <label for="shelf">Shelf <span style="color: red;">*</span></label>
-                <input type="text" id="shelf" name="shelf" required placeholder="e.g. S1">
+                <input type="text" id="shelf" name="shelf" required placeholder="Shelf S1">
             </div>
             <div class="form-group">
                 <label for="bay">Bay <span style="color: red;">*</span></label>
-                <input type="text" id="bay" name="bay" required placeholder="e.g. B1">
+                <input type="text" id="bay" name="bay" required placeholder="Bay B1">
             </div>
             <div class="form-group">
                 <label for="bin">Bin</label>

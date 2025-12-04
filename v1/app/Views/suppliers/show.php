@@ -4,13 +4,13 @@
     <a href="<?= url('/suppliers') ?>" class="btn btn-secondary">&larr; Back to Suppliers</a>
 </div>
 
-<div style="background: rgba(255, 255, 255, 0.05); padding: 2rem; border-radius: 8px;">
+<div style="background: white; padding: 2rem; border-radius: 8px;">
     <div style="display: flex; justify-content: space-between; align-items: start;">
         <div>
             <h1 style="margin-bottom: 0.5rem;">
                 <?= htmlspecialchars($supplier['name']) ?>
                 <?php if ($supplier['is_preferred']): ?>
-                    <span style="font-size: 0.5em; background: rgb(255, 222, 63); color: rgb(35, 31, 32); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">Preferred</span>
+                    <span style="font-size: 0.5em; background: #f9ca24; color: rgb(35, 31, 32); padding: 2px 6px; border-radius: 4px; vertical-align: middle;">Preferred</span>
                 <?php endif; ?>
             </h1>
         </div>
@@ -48,8 +48,8 @@
             <span style="
                 padding: 4px 8px; 
                 border-radius: 4px; 
-                background: <?= $supplier['is_active'] ? 'rgba(40, 167, 69, 0.2)' : 'rgba(220, 53, 69, 0.2)' ?>;
-                color: <?= $supplier['is_active'] ? '#28a745' : '#dc3545' ?>;
+                background: <?= $supplier['is_active'] ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)' ?>;
+                color: <?= $supplier['is_active'] ? '#22c55e' : '#ef4444' ?>;
             ">
                 <?= $supplier['is_active'] ? 'Active' : 'Inactive' ?>
             </span>

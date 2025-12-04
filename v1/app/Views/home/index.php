@@ -9,7 +9,6 @@
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
         <a href="<?= url('/parts') ?>" class="btn">View Parts</a>
         <a href="<?= url('/suppliers') ?>" class="btn">View Suppliers</a>
-        <a href="<?= url('/locations') ?>" class="btn">View Locations</a>
         <a href="<?= url('/inventory') ?>" class="btn">Manage Inventory</a>
         <a href="<?= url('/work-orders') ?>" class="btn">Work Orders</a>
     </div>

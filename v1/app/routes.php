@@ -10,7 +10,6 @@ declare(strict_types=1);
 use PartOps\Controllers\HomeController;
 use PartOps\Controllers\PartController;
 use PartOps\Controllers\SupplierController;
-use PartOps\Controllers\LocationController;
 use PartOps\Controllers\InventoryController;
 use PartOps\Controllers\WorkOrderController;
 use PartOps\Controllers\AuthController;
@@ -31,6 +30,10 @@ $router->get('/parts/{id}', [PartController::class, 'show']);
 $router->get('/parts/{id}/edit', [PartController::class, 'edit']);
 $router->post('/parts/{id}', [PartController::class, 'update']);
 $router->post('/parts/{id}/delete', [PartController::class, 'delete']);
+$router->post('/parts/{id}/numbers', [PartController::class, 'storeNumber']);
+$router->post('/parts/{id}/numbers/{numberId}/delete', [PartController::class, 'deleteNumber']);
+$router->post('/parts/{id}/suppliers', [PartController::class, 'storeSupplier']);
+$router->post('/parts/{id}/suppliers/{psId}/delete', [PartController::class, 'deleteSupplier']);
 $router->get('/parts/search', [PartController::class, 'search']);
 
 // Suppliers
@@ -42,24 +45,22 @@ $router->get('/suppliers/{id}/edit', [SupplierController::class, 'edit']);
 $router->post('/suppliers/{id}', [SupplierController::class, 'update']);
 $router->post('/suppliers/{id}/delete', [SupplierController::class, 'delete']);
 
-// Locations
-$router->get('/locations', [LocationController::class, 'index']);
-$router->get('/locations/create', [LocationController::class, 'create']);
-$router->post('/locations', [LocationController::class, 'store']);
-$router->get('/locations/{id}', [LocationController::class, 'show']);
-$router->get('/locations/{id}/edit', [LocationController::class, 'edit']);
-$router->post('/locations/{id}', [LocationController::class, 'update']);
-$router->post('/locations/{id}/delete', [LocationController::class, 'delete']);
-
 // Inventory
 $router->get('/inventory', [InventoryController::class, 'index']);
-$router->post('/inventory/receive', [InventoryController::class, 'receive']);
-$router->post('/inventory/checkout', [InventoryController::class, 'checkout']);
-$router->post('/inventory/return', [InventoryController::class, 'return']);
-$router->post('/inventory/adjust', [InventoryController::class, 'adjust']);
+$router->get('/inventory/receive', [InventoryController::class, 'receiveForm']);
+$router->post('/inventory/receive', [InventoryController::class, 'processReceive']);
+$router->get('/inventory/checkout', [InventoryController::class, 'checkoutForm']);
+$router->post('/inventory/checkout', [InventoryController::class, 'processCheckout']);
+$router->get('/inventory/return', [InventoryController::class, 'returnForm']);
+$router->post('/inventory/return', [InventoryController::class, 'processReturn']);
+$router->get('/inventory/adjust', [InventoryController::class, 'adjustForm']);
+$router->post('/inventory/adjust', [InventoryController::class, 'processAdjust']);
+$router->get('/inventory/search-work-orders', [InventoryController::class, 'searchWorkOrders']);
+$router->get('/inventory/work-order-parts', [InventoryController::class, 'getWorkOrderParts']);
 
 // Work Orders
 $router->get('/work-orders', [WorkOrderController::class, 'index']);
 $router->get('/work-orders/create', [WorkOrderController::class, 'create']);
 $router->post('/work-orders', [WorkOrderController::class, 'store']);
 $router->get('/work-orders/{id}', [WorkOrderController::class, 'show']);
+$router->post('/work-orders/{id}/status', [WorkOrderController::class, 'updateStatus']);

@@ -39,8 +39,8 @@
                         padding: 2px 6px; 
                         border-radius: 4px; 
                         font-size: 0.85em; 
-                        background: <?= $location['is_active'] ? 'rgba(40, 167, 69, 0.2)' : 'rgba(220, 53, 69, 0.2)' ?>;
-                        color: <?= $location['is_active'] ? '#28a745' : '#dc3545' ?>;
+                        background: <?= $location['is_active'] ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)' ?>;
+                        color: <?= $location['is_active'] ? '#22c55e' : '#ef4444' ?>;
                     ">
                         <?= $location['is_active'] ? 'Active' : 'Inactive' ?>
                     </span>
@@ -51,7 +51,7 @@
                     
                     <form action="<?= url('/locations/' . $location['id'] . '/delete') ?>" method="POST" onsubmit="return confirm('Are you sure? This cannot be undone.');" style="display: inline;">
                         <input type="hidden" name="_csrf_token" value="<?= $_SESSION['_csrf_token'] ?? '' ?>">
-                        <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9em; background: #dc3545;">Delete</button>
+                        <button type="submit" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.9em; background: #ef4444;">Delete</button>
                     </form>
                 </td>
             </tr>

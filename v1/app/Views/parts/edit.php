@@ -6,7 +6,7 @@
     <a href="<?= url('/parts') ?>" class="btn btn-secondary">&larr; Back to Parts</a>
 </div>
 
-<div style="background: rgba(255, 255, 255, 0.05); padding: 2rem; border-radius: 8px;">
+<div style="background: white; padding: 2rem; border-radius: 8px;">
     <form action="<?= url('/parts/' . $part['id']) ?>" method="POST">
         <input type="hidden" name="_csrf_token" value="<?= $_SESSION['_csrf_token'] ?? '' ?>">
         

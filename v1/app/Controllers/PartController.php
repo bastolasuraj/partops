@@ -15,31 +15,40 @@ use PartOps\Models\Part;
 class PartController extends Controller
 {
     private Part $partModel;
+    private \PartOps\Models\Supplier $supplierModel;
 
     public function __construct()
     {
         $this->partModel = new Part();
+        $this->supplierModel = new \PartOps\Models\Supplier();
     }
 
     public function index(): void
     {
         $this->requireAuth();
-        $parts = $this->partModel->all(['is_active' => 1]);
+        $parts = $this->partModel->getAllWithStock();
         $this->view('parts.index', ['title' => 'Parts', 'parts' => $parts]);
     }
 
     public function show(string $id): void
     {
         $this->requireAuth();
-        $part = $this->partModel->find((int)$id);
+        $part = $this->partModel->getDetails((int)$id);
         
         if (!$part) {
             http_response_code(404);
             echo "Part not found";
             return;
         }
+
+        $allSuppliers = $this->supplierModel->all(['is_active' => 1]);
         
-        $this->view('parts.show', ['title' => 'Part Details', 'part' => $part]);
+        $this->view('parts.show', [
+            'title' => 'Part Details', 
+            'part' => $part,
+            'allSuppliers' => $allSuppliers,
+            'csrf_token' => $this->generateCsrf()
+        ]);
     }
 
     public function create(): void
@@ -148,6 +157,78 @@ class PartController extends Controller
 
         $this->partModel->delete((int)$id);
         $this->redirect('/parts');
+    }
+
+    public function storeNumber(string $partId): void
+    {
+        $this->requireAuth();
+        if (!$this->validateCsrf()) {
+            $this->json(['error' => 'Invalid CSRF token'], 403);
+        }
+
+        $value = trim($this->post('value', ''));
+        if (empty($value)) {
+            $this->json(['error' => 'Value is required'], 400);
+        }
+
+        $data = [
+            'value' => $value,
+            'type' => $this->post('type', 'active'),
+            'manufacturer' => trim($this->post('manufacturer', '')),
+            'is_primary' => $this->post('is_primary') ? 1 : 0
+        ];
+
+        $this->partModel->addNumber((int)$partId, $data);
+        $this->redirect('/parts/' . $partId);
+    }
+
+    public function deleteNumber(string $partId, string $numberId): void
+    {
+        $this->requireAuth();
+        if (!$this->validateCsrf()) {
+            $this->json(['error' => 'Invalid CSRF token'], 403);
+        }
+        
+        $this->partModel->removeNumber((int)$numberId);
+        $this->redirect('/parts/' . $partId);
+    }
+
+    public function storeSupplier(string $partId): void
+    {
+        $this->requireAuth();
+        if (!$this->validateCsrf()) {
+            $this->json(['error' => 'Invalid CSRF token'], 403);
+        }
+
+        $supplierId = (int)$this->post('supplier_id');
+        if (!$supplierId) {
+            $this->json(['error' => 'Supplier is required'], 400);
+        }
+
+        $data = [
+            'supplier_sku' => trim($this->post('supplier_sku', '')),
+            'price' => (float)$this->post('price', 0),
+            'core_charge' => (float)$this->post('core_charge', 0),
+            'expected_rebate' => (float)$this->post('expected_rebate', 0)
+        ];
+
+        $partSupplierModel = new \PartOps\Models\PartSupplier();
+        $partSupplierModel->addOrUpdate((int)$partId, $supplierId, $data);
+        
+        $this->redirect('/parts/' . $partId);
+    }
+
+    public function deleteSupplier(string $partId, string $psId): void
+    {
+        $this->requireAuth();
+        if (!$this->validateCsrf()) {
+            $this->json(['error' => 'Invalid CSRF token'], 403);
+        }
+
+        $partSupplierModel = new \PartOps\Models\PartSupplier();
+        $partSupplierModel->delete((int)$psId);
+        
+        $this->redirect('/parts/' . $partId);
     }
 
     public function search(): void

@@ -6,15 +6,15 @@
 # ignore current project files/folders
 /.qodo/
 /AGENTS.md
-/composer.json
-/docs/
-/GEMINI.md
 /image.png
 /index.php
 /prototype/
 /vendor/
 /composer.lock
 /err.log
+
+# backup folder
+v4-old/
 
 # php composer artifacts
 composer.lock

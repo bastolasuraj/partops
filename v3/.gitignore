@@ -1,0 +1,35 @@
+# Dependencies
+/vendor/
+composer.lock
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Storage
+/storage/logs/*
+/storage/cache/*
+!/storage/logs/.gitkeep
+!/storage/cache/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PHP
+*.log
+err.log
+
+# Node (if using for Tailwind build)
+node_modules/
+package-lock.json
+
+# Compiled assets
+/public/assets/css/app.css

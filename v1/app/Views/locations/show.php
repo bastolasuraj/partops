@@ -4,7 +4,7 @@
     <a href="<?= url('/locations') ?>" class="btn btn-secondary">&larr; Back to Locations</a>
 </div>
 
-<div style="background: rgba(255, 255, 255, 0.05); padding: 2rem; border-radius: 8px;">
+<div style="background: white; padding: 2rem; border-radius: 8px;">
     <div style="display: flex; justify-content: space-between; align-items: start;">
         <div>
             <h1 style="margin-bottom: 0.5rem;">Location Details</h1>
@@ -18,19 +18,19 @@
     </div>
 
     <div style="margin-top: 2rem; display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
-        <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 4px; text-align: center;">
+        <div style="background: rgba(0,0,0,0.05); padding: 1rem; border-radius: 4px; text-align: center;">
             <div style="font-size: 0.8rem; color: #aaa;">AISLE</div>
             <div style="font-size: 1.5rem;"><?= htmlspecialchars($location['aisle']) ?></div>
         </div>
-        <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 4px; text-align: center;">
+        <div style="background: rgba(0,0,0,0.05); padding: 1rem; border-radius: 4px; text-align: center;">
             <div style="font-size: 0.8rem; color: #aaa;">SHELF</div>
             <div style="font-size: 1.5rem;"><?= htmlspecialchars($location['shelf']) ?></div>
         </div>
-        <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 4px; text-align: center;">
+        <div style="background: rgba(0,0,0,0.05); padding: 1rem; border-radius: 4px; text-align: center;">
             <div style="font-size: 0.8rem; color: #aaa;">BAY</div>
             <div style="font-size: 1.5rem;"><?= htmlspecialchars($location['bay']) ?></div>
         </div>
-        <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 4px; text-align: center;">
+        <div style="background: rgba(0,0,0,0.05); padding: 1rem; border-radius: 4px; text-align: center;">
             <div style="font-size: 0.8rem; color: #aaa;">BIN</div>
             <div style="font-size: 1.5rem;"><?= htmlspecialchars($location['bin'] ?? '-') ?></div>
         </div>
@@ -42,8 +42,8 @@
             <span style="
                 padding: 4px 8px; 
                 border-radius: 4px; 
-                background: <?= $location['is_active'] ? 'rgba(40, 167, 69, 0.2)' : 'rgba(220, 53, 69, 0.2)' ?>;
-                color: <?= $location['is_active'] ? '#28a745' : '#dc3545' ?>;
+                background: <?= $location['is_active'] ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)' ?>;
+                color: <?= $location['is_active'] ? '#22c55e' : '#ef4444' ?>;
             ">
                 <?= $location['is_active'] ? 'Active' : 'Inactive' ?>
             </span>

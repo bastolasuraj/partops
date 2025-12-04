@@ -65,7 +65,51 @@ class WorkOrderController extends Controller
             $this->json(['error' => 'Invalid CSRF token'], 403);
         }
 
-        // TODO: Implement work order creation
-        $this->json(['message' => 'Work order creation not yet implemented'], 501);
+        $externalRef = trim($this->post('external_ref', ''));
+        if (empty($externalRef)) {
+            $this->json(['error' => 'External Reference is required'], 400);
+        }
+
+        $data = [
+            'external_ref' => $externalRef,
+            'vehicle_ref' => trim($this->post('vehicle_ref', '')),
+            'status' => 'open',
+            'opened_at' => date('Y-m-d H:i:s')
+        ];
+
+        try {
+            $id = $this->workOrderModel->create($data);
+            $this->redirect('/work-orders/' . $id);
+        } catch (\PDOException $e) {
+            if ($e->getCode() == 23000) {
+                $this->json(['error' => 'Work Order ID already exists'], 400);
+            }
+            throw $e;
+        }
+    }
+
+    public function updateStatus(string $id): void
+    {
+        $this->requireAuth();
+        if (!$this->validateCsrf()) {
+            $this->json(['error' => 'Invalid CSRF token'], 403);
+        }
+
+        $status = $this->post('status');
+        $validStatuses = ['open', 'in_progress', 'completed', 'cancelled'];
+
+        if (!in_array($status, $validStatuses)) {
+            $this->json(['error' => 'Invalid status'], 400);
+        }
+
+        $data = ['status' => $status];
+        if (in_array($status, ['completed', 'cancelled'])) {
+            $data['closed_at'] = date('Y-m-d H:i:s');
+        } else {
+            $data['closed_at'] = null;
+        }
+
+        $this->workOrderModel->update((int)$id, $data);
+        $this->redirect('/work-orders/' . $id);
     }
 }
