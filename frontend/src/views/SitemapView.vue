@@ -1,0 +1,412 @@
+<template>
+  <div>
+    <!-- Page Header -->
+    <div class="mb-8 slide-up">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h1 class="text-3xl font-bold text-gray-900">Site Map</h1>
+          <p class="text-gray-600">Navigate to any page in the system</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="badge badge-info">{{ totalPages }} pages</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 slide-up">
+      <div class="card">
+        <div class="card-body">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-xs text-gray-500 uppercase font-bold mb-1">Master Data</div>
+              <div class="text-3xl font-bold text-blue-600">{{ masterDataPages.length }}</div>
+            </div>
+            <div class="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-xs text-gray-500 uppercase font-bold mb-1">Assets</div>
+              <div class="text-3xl font-bold text-green-600">{{ assetPages.length }}</div>
+            </div>
+            <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-xs text-gray-500 uppercase font-bold mb-1">Reports</div>
+              <div class="text-3xl font-bold text-purple-600">{{ reportPages.length }}</div>
+            </div>
+            <div class="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-purple-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="20" x2="18" y2="10"></line>
+                <line x1="12" y1="20" x2="12" y2="4"></line>
+                <line x1="6" y1="20" x2="6" y2="14"></line>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-xs text-gray-500 uppercase font-bold mb-1">Tools</div>
+              <div class="text-3xl font-bold text-orange-600">{{ toolPages.length }}</div>
+            </div>
+            <div class="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-orange-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+              </svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Master Data Section -->
+    <div class="card slide-up mb-6">
+      <div class="card-header">
+        <h2 class="text-xl font-semibold text-gray-800 flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-blue-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+          </svg>
+          Master Data Management
+        </h2>
+      </div>
+      <div class="p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <router-link v-for="page in masterDataPages" :key="page.path" :to="page.path"
+                       class="group border border-gray-200 rounded-lg p-4 hover:border-blue-500 hover:shadow-lg transition-all duration-200 bg-white">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                   :class="page.iconBg">
+                <component :is="page.icon" class="w-5 h-5" :class="page.iconColor" />
+              </div>
+              <div class="flex-1">
+                <div class="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
+                  {{ page.name }}
+                </div>
+                <div class="text-sm text-gray-500 mt-1">{{ page.description }}</div>
+                <div class="text-xs text-gray-400 mt-2">{{ page.path }}</div>
+              </div>
+            </div>
+          </router-link>
+        </div>
+      </div>
+    </div>
+
+    <!-- Asset Operations Section -->
+    <div class="card slide-up mb-6">
+      <div class="card-header">
+        <h2 class="text-xl font-semibold text-gray-800 flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-green-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+          </svg>
+          Asset Operations
+        </h2>
+      </div>
+      <div class="p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <router-link v-for="page in assetPages" :key="page.path" :to="page.path"
+                       class="group border border-gray-200 rounded-lg p-4 hover:border-green-500 hover:shadow-lg transition-all duration-200 bg-white">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                   :class="page.iconBg">
+                <component :is="page.icon" class="w-5 h-5" :class="page.iconColor" />
+              </div>
+              <div class="flex-1">
+                <div class="font-semibold text-gray-900 group-hover:text-green-600 transition-colors">
+                  {{ page.name }}
+                </div>
+                <div class="text-sm text-gray-500 mt-1">{{ page.description }}</div>
+                <div class="text-xs text-gray-400 mt-2">{{ page.path }}</div>
+              </div>
+            </div>
+          </router-link>
+        </div>
+      </div>
+    </div>
+
+    <!-- Reports & Analytics Section -->
+    <div class="card slide-up mb-6">
+      <div class="card-header">
+        <h2 class="text-xl font-semibold text-gray-800 flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-purple-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="20" x2="18" y2="10"></line>
+            <line x1="12" y1="20" x2="12" y2="4"></line>
+            <line x1="6" y1="20" x2="6" y2="14"></line>
+          </svg>
+          Reports & Analytics
+        </h2>
+      </div>
+      <div class="p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <router-link v-for="page in reportPages" :key="page.path" :to="page.path"
+                       class="group border border-gray-200 rounded-lg p-4 hover:border-purple-500 hover:shadow-lg transition-all duration-200 bg-white">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                   :class="page.iconBg">
+                <component :is="page.icon" class="w-5 h-5" :class="page.iconColor" />
+              </div>
+              <div class="flex-1">
+                <div class="font-semibold text-gray-900 group-hover:text-purple-600 transition-colors">
+                  {{ page.name }}
+                </div>
+                <div class="text-sm text-gray-500 mt-1">{{ page.description }}</div>
+                <div class="text-xs text-gray-400 mt-2">{{ page.path }}</div>
+              </div>
+            </div>
+          </router-link>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tools & Utilities Section -->
+    <div class="card slide-up">
+      <div class="card-header">
+        <h2 class="text-xl font-semibold text-gray-800 flex items-center gap-2">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-orange-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+          </svg>
+          Tools & Utilities
+        </h2>
+      </div>
+      <div class="p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <router-link v-for="page in toolPages" :key="page.path" :to="page.path"
+                       class="group border border-gray-200 rounded-lg p-4 hover:border-orange-500 hover:shadow-lg transition-all duration-200 bg-white">
+            <div class="flex items-start gap-3">
+              <div class="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                   :class="page.iconBg">
+                <component :is="page.icon" class="w-5 h-5" :class="page.iconColor" />
+              </div>
+              <div class="flex-1">
+                <div class="font-semibold text-gray-900 group-hover:text-orange-600 transition-colors">
+                  {{ page.name }}
+                </div>
+                <div class="text-sm text-gray-500 mt-1">{{ page.description }}</div>
+                <div class="text-xs text-gray-400 mt-2">{{ page.path }}</div>
+              </div>
+            </div>
+          </router-link>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed, h } from 'vue'
+
+// Icon components as render functions
+const BoxIcon = () => h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+  h('path', { d: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z' })
+])
+
+const TruckIcon = () => h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+  h('rect', { x: '1', y: '3', width: '15', height: '13' }),
+  h('polygon', { points: '16 8 20 8 23 11 23 16 16 16 16 8' }),
+  h('circle', { cx: '5.5', cy: '18.5', r: '2.5' }),
+  h('circle', { cx: '18.5', cy: '18.5', r: '2.5' })
+])
+
+const UsersIcon = () => h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+  h('path', { d: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' }),
+  h('circle', { cx: '9', cy: '7', r: '4' }),
+  h('path', { d: 'M23 21v-2a4 4 0 0 0-3-3.87' }),
+  h('path', { d: 'M16 3.13a4 4 0 0 1 0 7.75' })
+])
+
+const PackageIcon = () => h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+  h('line', { x1: '16.5', y1: '9.4', x2: '7.5', y2: '4.21' }),
+  h('path', { d: 'M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z' }),
+  h('polyline', { points: '3.27 6.96 12 12.01 20.73 6.96' }),
+  h('line', { x1: '12', y1: '22.08', x2: '12', y2: '12' })
+])
+
+const ArrowDownIcon = () => h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+  h('line', { x1: '12', y1: '5', x2: '12', y2: '19' }),
+  h('polyline', { points: '19 12 12 19 5 12' })
+])
+
+const ArrowUpIcon = () => h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+  h('line', { x1: '12', y1: '19', x2: '12', y2: '5' }),
+  h('polyline', { points: '5 12 12 5 19 12' })
+])
+
+const RotateIcon = () => h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+  h('polyline', { points: '23 4 23 10 17 10' }),
+  h('path', { d: 'M20.49 15a9 9 0 1 1-2.12-9.36L23 10' })
+])
+
+const FileTextIcon = () => h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+  h('path', { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }),
+  h('polyline', { points: '14 2 14 8 20 8' }),
+  h('line', { x1: '16', y1: '13', x2: '8', y2: '13' }),
+  h('line', { x1: '16', y1: '17', x2: '8', y2: '17' }),
+  h('polyline', { points: '10 9 9 9 8 9' })
+])
+
+const ClipboardIcon = () => h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+  h('path', { d: 'M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2' }),
+  h('rect', { x: '8', y: '2', width: '8', height: '4', rx: '1', ry: '1' })
+])
+
+const AlertIcon = () => h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+  h('path', { d: 'm21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z' }),
+  h('line', { x1: '12', y1: '9', x2: '12', y2: '13' }),
+  h('line', { x1: '12', y1: '17', x2: '12.01', y2: '17' })
+])
+
+const LinkIcon = () => h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+  h('path', { d: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71' }),
+  h('path', { d: 'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71' })
+])
+
+const MapIcon = () => h('svg', { xmlns: 'http://www.w3.org/2000/svg', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2' }, [
+  h('polygon', { points: '1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6' }),
+  h('line', { x1: '8', y1: '2', x2: '8', y2: '18' }),
+  h('line', { x1: '16', y1: '6', x2: '16', y2: '22' })
+])
+
+const masterDataPages = [
+  {
+    name: 'Parts Master',
+    path: '/parts',
+    description: 'Manage parts catalog and assets',
+    icon: BoxIcon,
+    iconBg: 'bg-blue-100',
+    iconColor: 'text-blue-600'
+  },
+  {
+    name: 'Suppliers',
+    path: '/suppliers',
+    description: 'Manage supplier information',
+    icon: TruckIcon,
+    iconBg: 'bg-green-100',
+    iconColor: 'text-green-600'
+  },
+  {
+    name: 'Technicians',
+    path: '/technicians',
+    description: 'Manage technician records',
+    icon: UsersIcon,
+    iconBg: 'bg-purple-100',
+    iconColor: 'text-purple-600'
+  },
+  {
+    name: 'Units',
+    path: '/units',
+    description: 'Manage vehicles and equipment',
+    icon: TruckIcon,
+    iconBg: 'bg-orange-100',
+    iconColor: 'text-orange-600'
+  }
+]
+
+const assetPages = [
+  {
+    name: 'Incoming Assets',
+    path: '/incoming',
+    description: 'Receive stock from suppliers',
+    icon: ArrowDownIcon,
+    iconBg: 'bg-green-100',
+    iconColor: 'text-green-600'
+  },
+  {
+    name: 'Outgoing Assets',
+    path: '/outgoing',
+    description: 'Issue parts to work orders',
+    icon: ArrowUpIcon,
+    iconBg: 'bg-blue-100',
+    iconColor: 'text-blue-600'
+  },
+  {
+    name: 'Returns',
+    path: '/returns',
+    description: 'Process returned parts',
+    icon: RotateIcon,
+    iconBg: 'bg-purple-100',
+    iconColor: 'text-purple-600'
+  },
+  {
+    name: 'Vendor Returns',
+    path: '/vendor-returns',
+    description: 'Returns to suppliers (RMA)',
+    icon: PackageIcon,
+    iconBg: 'bg-red-100',
+    iconColor: 'text-red-600'
+  }
+]
+
+const reportPages = [
+  {
+    name: 'Transactions',
+    path: '/transactions',
+    description: 'View all asset movements',
+    icon: FileTextIcon,
+    iconBg: 'bg-blue-100',
+    iconColor: 'text-blue-600'
+  },
+  {
+    name: 'Work Orders',
+    path: '/work-orders',
+    description: 'View work order history',
+    icon: ClipboardIcon,
+    iconBg: 'bg-green-100',
+    iconColor: 'text-green-600'
+  },
+  {
+    name: 'Low Stock Alert',
+    path: '/low-stock',
+    description: 'Parts needing reorder',
+    icon: AlertIcon,
+    iconBg: 'bg-red-100',
+    iconColor: 'text-red-600'
+  }
+]
+
+const toolPages = [
+  {
+    name: 'Fowler PN Mapping',
+    path: '/fowler-mapping',
+    description: 'View supplier part relationships',
+    icon: LinkIcon,
+    iconBg: 'bg-purple-100',
+    iconColor: 'text-purple-600'
+  },
+  {
+    name: 'Site Map',
+    path: '/sitemap',
+    description: 'Navigate all pages',
+    icon: MapIcon,
+    iconBg: 'bg-gray-100',
+    iconColor: 'text-gray-600'
+  }
+]
+
+const totalPages = computed(() => {
+  return masterDataPages.length + assetPages.length + reportPages.length + toolPages.length
+})
+</script>

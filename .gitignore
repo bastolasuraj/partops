@@ -1,0 +1,48 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Secrets / environment
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.sqlite
+*.sqlite3
+*.db
+
+# Dependencies / build output
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+backend/vendor/
+
+# Runtime / local logs
+**/*.log
+backend/.tmp-*.log
+frontend/.tmp-*.log
+frontend/session.txt
+backend/storage/logs/
+backend/storage/report-downloads/
+backend/storage/*.key
+backend/storage/framework/
+backend/storage/app/private/
+
+# Local backups / archives / temp
+*.zip
+*.7z
+*.bak
+*.tmp
+tmp_checkout_body.json
+
+# Local business data exports
+*.xlsx
+*.xls
+*.csv
