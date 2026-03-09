@@ -23,6 +23,7 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 backend/vendor/
+backend/public/
 
 # Runtime / local logs
 **/*.log
