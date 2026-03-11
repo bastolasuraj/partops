@@ -178,8 +178,12 @@ export const partsApi = {
   create: (data) => api.post('/parts', data),
   update: (id, data) => api.put(`/parts/${id}`, data),
   delete: (id) => api.delete(`/parts/${id}`),
+  analyzeBulkImport: (items, config = {}) => api.post('/parts/bulk-import/analyze', { items }, {
+    timeout: 120000,
+    ...config
+  }),
   bulkImport: (items, config = {}) => api.post('/parts/bulk-import', { items }, {
-    timeout: 60000,
+    timeout: 180000,
     ...config
   }),
   getFowlerMapping: (fowlerPartNumber) => api.get('/parts/fowler-mapping', {
@@ -257,6 +261,13 @@ export const reportsApi = {
   archiveDownload: (formData) => api.post('/reports/archive', formData, {
     timeout: 60000
   })
+}
+
+// Audit Logs API
+export const auditLogsApi = {
+  getAll: (params = {}) => api.get('/audit-logs', { params }),
+  getAccessStatus: () => api.get('/audit-logs/access-status'),
+  confirmAccess: (password) => api.post('/audit-logs/confirm-access', { password }),
 }
 
 export default api

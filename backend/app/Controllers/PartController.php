@@ -245,6 +245,16 @@ class PartController extends BaseController
         ]);
     }
 
+    public function analyzeBulkImport(): void
+    {
+        $items = $this->request->get('items', []);
+        if (!is_array($items)) {
+            Response::error('items must be an array', 400);
+        }
+
+        Response::success($this->analyzeImportItems($items), 'Bulk import analysis completed');
+    }
+
     public function bulkImport(): void
     {
         $items = $this->request->get('items', []);
@@ -252,139 +262,121 @@ class PartController extends BaseController
             Response::error('items must be an array', 400);
         }
 
+        Response::success($this->commitImportItems($items), 'Bulk import completed');
+    }
+
+    private function analyzeImportItems(array $items): array
+    {
+        $rows = [];
+        foreach ($items as $index => $item) {
+            if (!is_array($item)) {
+                $rows[] = $this->buildInvalidImportRow($index, 'Invalid import row', 'Re-export the spreadsheet and try again.');
+                continue;
+            }
+
+            $rows[] = $this->buildImportAnalysisRow($item, $index);
+        }
+
+        $this->applyImportGroupRules($rows, false);
+
+        $readyItems = [];
+        $reviewItems = [];
+        $skippedItems = [];
+
+        foreach ($rows as $row) {
+            if (($row['status'] ?? 'ready') === 'skip') {
+                $skippedItems[] = $row;
+                continue;
+            }
+
+            if (($row['status'] ?? 'ready') === 'review') {
+                $reviewItems[] = $row;
+                continue;
+            }
+
+            $readyItems[] = $row;
+        }
+
+        return [
+            'summary' => $this->buildImportSummary($rows),
+            'ready_items' => $readyItems,
+            'review_items' => $reviewItems,
+            'skipped_items' => $skippedItems,
+        ];
+    }
+
+    private function commitImportItems(array $items): array
+    {
+        $rows = [];
+        foreach ($items as $index => $item) {
+            if (!is_array($item)) {
+                $rows[] = $this->buildInvalidImportRow($index, 'Invalid import row', 'Re-export the spreadsheet and try again.');
+                continue;
+            }
+
+            $rows[] = $this->buildImportAnalysisRow($item, $index);
+        }
+
+        $this->applyImportGroupRules($rows, true);
+
         $stats = [
-            'processed' => 0,
+            'processed' => count($rows),
             'created' => 0,
-            'duplicates' => 0,
             'existing_updated' => 0,
+            'master_only_created' => 0,
+            'unchanged' => 0,
             'skipped' => 0,
             'errors' => 0,
             'suppliers_created' => 0,
         ];
         $errors = [];
-        $duplicateItems = [];
         $nextFowlerNumber = $this->getNextFowlerSequence();
         $createdBy = $_SESSION['user']['display_name'] ?? $_SESSION['user']['username'] ?? null;
-        $createdInBatch = [];
+        $resolvedParts = [];
 
-        foreach ($items as $index => $item) {
-            $stats['processed']++;
-            if (!is_array($item)) {
-                $stats['skipped']++;
-                continue;
-            }
-
+        foreach ($rows as $row) {
+            $item = $row['suggested_item'] ?? [];
             $supplierPartNumber = $this->normalizeString($item['supplier_part_number'] ?? '');
-            $name = $this->normalizeString($item['name'] ?? '');
-            $description = $this->normalizeString($item['description'] ?? '');
-            $incomingUnitOfMeasure = $this->normalizeUnitOfMeasure($item['unit_of_measure'] ?? null);
 
-            if ($description === '' && $name !== '') {
-                $description = $name;
-            }
-            if ($name === '' && $description !== '') {
-                $name = $description;
-            }
-
-            if ($supplierPartNumber === '' || $name === '') {
+            if (($row['status'] ?? 'ready') === 'skip' || $supplierPartNumber === '') {
                 $stats['skipped']++;
+                foreach ($this->collectBlockingImportIssues($row) as $issue) {
+                    $errors[] = $this->buildImportErrorItem($row, $issue);
+                }
                 continue;
             }
 
-            $locationAisle = $this->normalizeString($item['location_aisle'] ?? '');
-            $locationShelf = $this->normalizeString($item['location_shelf'] ?? '');
-            $locationBay = $this->normalizeString($item['location_bay'] ?? '');
-            $locationAlt = $this->normalizeString($item['location_alt'] ?? '');
-            $locationRaw = $this->normalizeString($item['location_raw'] ?? '');
-
-            if ($locationRaw !== '') {
-                [$locationAisle, $locationShelf, $locationBay, $parsedAlt] = $this->parseLocationStrict($locationRaw);
-                if ($parsedAlt !== '') {
-                    $locationAlt = $parsedAlt;
+            $existingPart = null;
+            if (array_key_exists($supplierPartNumber, $resolvedParts)) {
+                $existingPart = $resolvedParts[$supplierPartNumber];
+            } else {
+                $existingLookup = $this->part->findBySupplierPartNumber($supplierPartNumber);
+                if ($existingLookup) {
+                    $existingPart = $this->part->findWithDetails((int)$existingLookup['id']) ?: $existingLookup;
                 }
+                $resolvedParts[$supplierPartNumber] = $existingPart;
             }
 
+            $locationPayload = $this->buildLocationPayloadFromImportItem($item);
             $quantity = $this->parseQuantity($item['quantity'] ?? 0);
-            $unitPrice = $this->parseUnitPrice($item['unit_price'] ?? 0);
+            $unitPrice = (float)$this->parseUnitPrice($item['unit_price'] ?? 0);
 
-            if ($unitPrice <= 0) {
-                $stats['skipped']++;
-                if (count($errors) < 25) {
-                    $errors[] = [
-                        'row' => $index + 1,
-                        'supplier_part_number' => $supplierPartNumber,
-                        'message' => 'Missing cost/unit',
-                    ];
-                }
-                continue;
-            }
-
-            $lowStockThreshold = $item['low_stock_threshold'] ?? 5;
-            $lowStockThreshold = is_numeric($lowStockThreshold) ? max(0, (int)$lowStockThreshold) : 5;
-            $locationPayload = [
-                'location_raw' => $locationRaw,
-                'location_aisle' => $locationAisle,
-                'location_shelf' => $locationShelf,
-                'location_bay' => $locationBay,
-                'location_alt' => $locationAlt,
-            ];
-
-            $existing = $this->part->findBySupplierPartNumber($supplierPartNumber);
-            if ($existing) {
-                $isCreatedInThisBatch = array_key_exists($supplierPartNumber, $createdInBatch);
-                $existingUnit = $this->normalizeUnitOfMeasure($existing['unit_of_measure'] ?? null);
-
-                if ($existingUnit !== $incomingUnitOfMeasure) {
-                    $stats['duplicates']++;
-                    if (count($duplicateItems) < 500) {
-                        $duplicateItems[] = [
-                            'sheet' => $item['source_sheet'] ?? null,
-                            'row' => $item['source_row'] ?? ($index + 1),
-                            'supplier_part_number' => $supplierPartNumber,
-                            'incoming_name' => $name,
-                            'incoming_unit_of_measure' => $incomingUnitOfMeasure,
-                            'existing_part_id' => $existing['id'] ?? null,
-                            'existing_fowler_part_number' => $existing['fowler_part_number'] ?? null,
-                            'existing_name' => $existing['name'] ?? null,
-                            'existing_unit_of_measure' => $existing['unit_of_measure'] ?? 'each',
-                        ];
-                    }
-                    continue;
-                }
-
-                if (!$isCreatedInThisBatch) {
-                    $stats['duplicates']++;
-                    if (count($duplicateItems) < 500) {
-                        $duplicateItems[] = [
-                            'sheet' => $item['source_sheet'] ?? null,
-                            'row' => $item['source_row'] ?? ($index + 1),
-                            'supplier_part_number' => $supplierPartNumber,
-                            'incoming_name' => $name,
-                            'incoming_unit_of_measure' => $incomingUnitOfMeasure,
-                            'existing_part_id' => $existing['id'] ?? null,
-                            'existing_fowler_part_number' => $existing['fowler_part_number'] ?? null,
-                            'existing_name' => $existing['name'] ?? null,
-                            'existing_unit_of_measure' => $existing['unit_of_measure'] ?? 'each',
-                        ];
-                    }
-                    continue;
-                }
-
+            if ($existingPart) {
                 if ($quantity <= 0) {
-                    $stats['skipped']++;
+                    $stats['unchanged']++;
                     continue;
                 }
 
                 try {
-                    $normalizedLocation = $this->locationLevel->normalizeLocationPayload($locationPayload, $existing);
-                    $this->part->adjustStock((int)$existing['id'], $quantity);
-                    $this->locationLevel->addStock((int)$existing['id'], $quantity, $normalizedLocation, $existing);
+                    $normalizedLocation = $this->locationLevel->normalizeLocationPayload($locationPayload, $existingPart);
+                    $this->part->adjustStock((int)$existingPart['id'], $quantity);
+                    $this->locationLevel->addStock((int)$existingPart['id'], $quantity, $normalizedLocation, $existingPart);
                     $this->transaction->recordIncoming(
-                        (int)$existing['id'],
+                        (int)$existingPart['id'],
                         $quantity,
-                        isset($existing['supplier_id']) ? (int)$existing['supplier_id'] : null,
-                        (float)$unitPrice,
-                        'Bulk import (additional row)',
+                        isset($existingPart['supplier_id']) ? (int)$existingPart['supplier_id'] : null,
+                        $unitPrice,
+                        'Bulk import',
                         $createdBy,
                         false,
                         0,
@@ -393,58 +385,51 @@ class PartController extends BaseController
                         'vendor',
                         $normalizedLocation
                     );
-                    $this->part->syncUnitPriceFromFifo((int)$existing['id']);
+                    $this->part->syncUnitPriceFromFifo((int)$existingPart['id']);
                     $stats['existing_updated']++;
                 } catch (\Exception $e) {
                     $stats['errors']++;
-                    if (count($errors) < 25) {
-                        $errors[] = [
-                            'row' => $index + 1,
-                            'supplier_part_number' => $supplierPartNumber,
-                            'message' => $e->getMessage(),
-                        ];
-                    }
+                    $errors[] = $this->buildImportRuntimeError(
+                        $row,
+                        $e->getMessage(),
+                        'Review the row values and retry. If the part already exists, confirm the location and unit match the existing record.'
+                    );
                 }
 
                 continue;
             }
 
-            $supplierName = $this->normalizeString($item['supplier_name'] ?? '');
-            if ($supplierName === '') {
-                $stats['skipped']++;
-                continue;
-            }
-            $supplierId = $this->findOrCreateSupplier($supplierName, $stats);
-            $fowlerPartNumber = $this->formatFowlerPartNumber($nextFowlerNumber);
-            $nextFowlerNumber++;
-
-            $normalizedLocation = $this->locationLevel->normalizeLocationPayload($locationPayload);
-
-            $data = [
-                'fowler_part_number' => $fowlerPartNumber,
-                'name' => $name,
-                'description' => $description,
-                'supplier_id' => $supplierId,
-                'supplier_part_number' => $supplierPartNumber,
-                'unit_of_measure' => $incomingUnitOfMeasure,
-                'location_aisle' => $normalizedLocation['location_aisle'],
-                'location_shelf' => $normalizedLocation['location_shelf'],
-                'location_bay' => $normalizedLocation['location_bay'],
-                'location_alt' => $normalizedLocation['location_alt'],
-                'low_stock_threshold' => $lowStockThreshold,
-                'unit_price' => $unitPrice,
-            ];
-
             try {
+                $supplierId = $this->findOrCreateSupplier($this->normalizeString($item['supplier_name'] ?? ''), $stats);
+                $fowlerPartNumber = $this->formatFowlerPartNumber($nextFowlerNumber);
+                $nextFowlerNumber++;
+                $normalizedLocation = $this->locationLevel->normalizeLocationPayload($locationPayload);
+                $data = [
+                    'fowler_part_number' => $fowlerPartNumber,
+                    'name' => $this->normalizeString($item['name'] ?? ''),
+                    'description' => $this->normalizeString($item['description'] ?? ''),
+                    'supplier_id' => $supplierId,
+                    'supplier_part_number' => $supplierPartNumber,
+                    'unit_of_measure' => $this->normalizeUnitOfMeasure($item['unit_of_measure'] ?? null),
+                    'location_aisle' => $normalizedLocation['location_aisle'],
+                    'location_shelf' => $normalizedLocation['location_shelf'],
+                    'location_bay' => $normalizedLocation['location_bay'],
+                    'location_alt' => $normalizedLocation['location_alt'],
+                    'low_stock_threshold' => is_numeric($item['low_stock_threshold'] ?? null)
+                        ? max(0, (int)$item['low_stock_threshold'])
+                        : 5,
+                    'unit_price' => $unitPrice,
+                ];
+
                 $part = $this->part->create($data);
                 if ($quantity > 0) {
-                    $this->part->updateStock($part['id'], $quantity);
+                    $this->part->updateStock((int)$part['id'], $quantity);
                     $this->locationLevel->addStock((int)$part['id'], $quantity, $normalizedLocation, $part);
                     $this->transaction->recordIncoming(
-                        $part['id'],
+                        (int)$part['id'],
                         $quantity,
                         $supplierId,
-                        (float)$unitPrice,
+                        $unitPrice,
                         'Bulk import',
                         $createdBy,
                         false,
@@ -455,36 +440,725 @@ class PartController extends BaseController
                         $normalizedLocation
                     );
                 } else {
-                    $this->part->updateStock($part['id'], 0);
+                    $this->part->updateStock((int)$part['id'], 0);
+                    $stats['master_only_created']++;
                 }
+
                 $this->createFowlerSupplierMapping(
                     $fowlerPartNumber,
-                    $part['id'],
+                    (int)$part['id'],
                     $supplierId,
                     $supplierPartNumber
                 );
                 $stats['created']++;
-                $createdInBatch[$supplierPartNumber] = [
-                    'part_id' => (int)$part['id'],
-                    'unit_of_measure' => $incomingUnitOfMeasure,
-                ];
+                $resolvedParts[$supplierPartNumber] = $this->part->findWithDetails((int)$part['id']) ?: $part;
             } catch (\Exception $e) {
                 $stats['errors']++;
-                if (count($errors) < 25) {
-                    $errors[] = [
-                        'row' => $index + 1,
-                        'supplier_part_number' => $supplierPartNumber,
-                        'message' => $e->getMessage(),
-                    ];
-                }
+                $errors[] = $this->buildImportRuntimeError(
+                    $row,
+                    $e->getMessage(),
+                    'Review the row values and retry. If the supplier part number already exists, confirm the row should update the existing part instead of creating a new one.'
+                );
             }
         }
 
-        Response::success([
+        return [
             'stats' => $stats,
             'errors' => $errors,
-            'duplicate_items' => $duplicateItems,
-        ], 'Bulk import completed');
+            'no_upload_items' => $errors,
+        ];
+    }
+
+    private function buildImportAnalysisRow(array $item, int $index): array
+    {
+        $sheet = $this->normalizeString($item['source_sheet'] ?? $item['sheet'] ?? 'Sheet1');
+        $rowNumberRaw = $item['source_row'] ?? $item['row'] ?? ($index + 1);
+        $rowNumber = is_numeric($rowNumberRaw) ? (int)$rowNumberRaw : ($index + 1);
+        $rawSupplierPartNumber = $this->normalizeString($item['supplier_part_number'] ?? '');
+        $rawManufacturer = $this->normalizeString($item['supplier_name'] ?? '');
+        $rawDescription = $this->normalizeString($item['description'] ?? $item['name'] ?? '');
+        $rawLocation = $this->normalizeString($item['location_raw'] ?? '');
+        $rawAlternateLocation = $this->normalizeString($item['location_alt'] ?? '');
+        $rawQuantity = $this->normalizeString($item['quantity'] ?? '');
+        $rawUnitPrice = $this->normalizeString($item['unit_price'] ?? '');
+        $quantity = $this->parseQuantity($item['quantity'] ?? 0);
+        $unitPrice = (float)$this->parseUnitPrice($item['unit_price'] ?? 0);
+        $unitOfMeasure = $this->normalizeUnitOfMeasure($item['unit_of_measure'] ?? null);
+
+        $row = [
+            'id' => sprintf('%s:%d:%d', $sheet !== '' ? $sheet : 'Sheet1', $rowNumber, $index + 1),
+            'sheet' => $sheet !== '' ? $sheet : 'Sheet1',
+            'row' => $rowNumber,
+            'status' => 'ready',
+            'action' => 'create',
+            'issues' => [],
+            'modifications' => [],
+            'existing_part' => null,
+            'original' => [
+                'supplier_part_number' => $rawSupplierPartNumber,
+                'description' => $rawDescription,
+                'supplier_name' => $rawManufacturer,
+                'location' => $rawLocation !== '' ? $rawLocation : $rawAlternateLocation,
+                'unit_of_measure' => $this->normalizeString($item['unit_of_measure'] ?? ''),
+                'quantity' => $rawQuantity,
+                'unit_price' => $rawUnitPrice,
+            ],
+            'suggested_item' => [
+                'supplier_part_number' => $rawSupplierPartNumber,
+                'name' => $rawDescription,
+                'description' => $rawDescription,
+                'supplier_name' => $rawManufacturer,
+                'unit_of_measure' => $unitOfMeasure,
+                'location_raw' => '',
+                'location_aisle' => '',
+                'location_shelf' => '',
+                'location_bay' => '',
+                'location_alt' => '',
+                'quantity' => $quantity,
+                'unit_price' => $unitPrice,
+                'low_stock_threshold' => is_numeric($item['low_stock_threshold'] ?? null)
+                    ? max(0, (int)$item['low_stock_threshold'])
+                    : 5,
+                'source_sheet' => $sheet !== '' ? $sheet : 'Sheet1',
+                'source_row' => $rowNumber,
+            ],
+        ];
+
+        if ($rawSupplierPartNumber === '') {
+            $this->recordImportIssue(
+                $row,
+                'missing_part_number',
+                'supplier_part_number',
+                'error',
+                'Row skipped because Supplier Part Number is required.',
+                'Add a Supplier/Vendor Part Number in the first column and upload again.'
+            );
+        }
+
+        if ($rawManufacturer === '') {
+            $this->recordImportIssue(
+                $row,
+                'missing_manufacturer',
+                'supplier_name',
+                'error',
+                'Row skipped because manufacturer is required.',
+                'Fill in the manufacturer/vendor column before importing.'
+            );
+        }
+
+        if ($rawDescription === '' && $rawManufacturer !== '') {
+            $fallbackDescription = sprintf('manufacturer: %s', $rawManufacturer);
+            $row['suggested_item']['name'] = $fallbackDescription;
+            $row['suggested_item']['description'] = $fallbackDescription;
+            $this->recordImportModification(
+                $row,
+                'description',
+                '',
+                $fallbackDescription,
+                'Filled missing description from manufacturer.'
+            );
+            $this->recordImportIssue(
+                $row,
+                'description_filled_from_manufacturer',
+                'description',
+                'warning',
+                'Description was missing, so the importer suggested "manufacturer: <manufacturer>".',
+                'Accept the suggestion or edit the description before committing the import.'
+            );
+        }
+
+        $location = $this->normalizeImportLocation($rawLocation, $rawAlternateLocation);
+        if ($location['missing']) {
+            $this->recordImportIssue(
+                $row,
+                'missing_location',
+                'location',
+                'error',
+                'Row skipped because location is required.',
+                'Provide either a structured aisle-shelf-bay location or an alternate location value.'
+            );
+        } else {
+            $row['suggested_item']['location_raw'] = $location['location_raw'];
+            $row['suggested_item']['location_aisle'] = $location['location_aisle'];
+            $row['suggested_item']['location_shelf'] = $location['location_shelf'];
+            $row['suggested_item']['location_bay'] = $location['location_bay'];
+            $row['suggested_item']['location_alt'] = $location['location_alt'];
+
+            foreach ($location['modifications'] as $modification) {
+                $this->recordImportModification(
+                    $row,
+                    'location',
+                    $modification['from'],
+                    $modification['to'],
+                    $modification['reason']
+                );
+            }
+
+            if (!empty($location['modifications'])) {
+                $this->recordImportIssue(
+                    $row,
+                    'location_cleaned',
+                    'location',
+                    'warning',
+                    'Location was cleaned to match aisle-shelf-bay format.',
+                    'Review the suggested location and either accept it, edit it, or skip the row.'
+                );
+            }
+        }
+
+        $quantityExplicitZero = $this->isExplicitZeroImportValue($rawQuantity, $quantity);
+        $priceExplicitZero = $this->isExplicitZeroImportValue($rawUnitPrice, $unitPrice);
+        if ($quantity <= 0 || $unitPrice <= 0) {
+            if ($quantity !== 0) {
+                $this->recordImportModification(
+                    $row,
+                    'quantity',
+                    $quantity,
+                    0,
+                    'Converted missing or invalid quantity to 0 for master-only import.'
+                );
+            }
+            if ($unitPrice !== 0.0) {
+                $this->recordImportModification(
+                    $row,
+                    'unit_price',
+                    $unitPrice,
+                    0,
+                    'Converted missing or invalid cost/unit to 0 for master-only import.'
+                );
+            }
+
+            $row['suggested_item']['quantity'] = 0;
+            $row['suggested_item']['unit_price'] = 0.0;
+            $row['action'] = 'create_master_only';
+
+            if (!($quantityExplicitZero && $priceExplicitZero)) {
+                $this->recordImportIssue(
+                    $row,
+                    'master_only_suggestion',
+                    'quantity',
+                    'warning',
+                    'Quantity or cost/unit was missing or invalid, so the importer suggested a 0 quantity / 0 cost master-only import.',
+                    'Accept the master-only suggestion, edit the quantity and cost, or skip the row.'
+                );
+            }
+        }
+
+        return $row;
+    }
+
+    private function applyImportGroupRules(array &$rows, bool $forCommit): void
+    {
+        $groups = [];
+        foreach ($rows as $index => $row) {
+            $supplierPartNumber = $this->normalizeString($row['suggested_item']['supplier_part_number'] ?? '');
+            if ($supplierPartNumber === '') {
+                continue;
+            }
+
+            if (!isset($groups[$supplierPartNumber])) {
+                $groups[$supplierPartNumber] = [];
+            }
+            $groups[$supplierPartNumber][] = $index;
+        }
+
+        $existingCache = [];
+        foreach ($groups as $supplierPartNumber => $indexes) {
+            $referenceItem = null;
+            foreach ($indexes as $index) {
+                if (($rows[$index]['status'] ?? 'ready') === 'skip') {
+                    continue;
+                }
+                $referenceItem = $rows[$index]['suggested_item'] ?? null;
+                if ($referenceItem) {
+                    break;
+                }
+            }
+
+            foreach ($indexes as $index) {
+                if (($rows[$index]['status'] ?? 'ready') === 'skip') {
+                    continue;
+                }
+
+                $item = $rows[$index]['suggested_item'] ?? [];
+                if ($referenceItem && !$this->areImportFieldsEquivalent($referenceItem['unit_of_measure'] ?? '', $item['unit_of_measure'] ?? '')) {
+                    $this->recordImportIssue(
+                        $rows[$index],
+                        'supplier_part_conflict_unit',
+                        'unit_of_measure',
+                        $forCommit ? 'error' : 'warning',
+                        'Rows with the same Supplier Part Number have different units of measure.',
+                        'Make the unit match across duplicate supplier part numbers or split them into separate part numbers.'
+                    );
+                }
+
+                if ($referenceItem && !$this->areImportFieldsEquivalent($referenceItem['name'] ?? '', $item['name'] ?? '')) {
+                    $this->recordImportIssue(
+                        $rows[$index],
+                        'supplier_part_conflict_name',
+                        'name',
+                        $forCommit ? 'error' : 'warning',
+                        'Rows with the same Supplier Part Number have conflicting descriptions.',
+                        'Edit the descriptions so repeated supplier part numbers describe the same part.'
+                    );
+                }
+
+                if ($referenceItem && !$this->areImportFieldsEquivalent($referenceItem['supplier_name'] ?? '', $item['supplier_name'] ?? '')) {
+                    $this->recordImportIssue(
+                        $rows[$index],
+                        'supplier_part_conflict_manufacturer',
+                        'supplier_name',
+                        $forCommit ? 'error' : 'warning',
+                        'Rows with the same Supplier Part Number have conflicting manufacturers.',
+                        'Use the same manufacturer for duplicate supplier part numbers or correct the supplier part number.'
+                    );
+                }
+            }
+
+            if (!array_key_exists($supplierPartNumber, $existingCache)) {
+                $existingLookup = $this->part->findBySupplierPartNumber($supplierPartNumber);
+                $existingCache[$supplierPartNumber] = $existingLookup
+                    ? ($this->part->findWithDetails((int)$existingLookup['id']) ?: $existingLookup)
+                    : null;
+            }
+
+            $existingPart = $existingCache[$supplierPartNumber];
+            if (!$existingPart) {
+                continue;
+            }
+
+            foreach ($indexes as $index) {
+                if (($rows[$index]['status'] ?? 'ready') === 'skip') {
+                    continue;
+                }
+
+                $this->applyExistingPartContext($rows[$index], $existingPart, $forCommit);
+            }
+        }
+    }
+
+    private function applyExistingPartContext(array &$row, array $existingPart, bool $forCommit): void
+    {
+        $row['existing_part'] = [
+            'id' => $existingPart['id'] ?? null,
+            'fowler_part_number' => $existingPart['fowler_part_number'] ?? null,
+            'name' => $existingPart['name'] ?? null,
+            'supplier_name' => $existingPart['supplier_name'] ?? null,
+            'unit_of_measure' => $existingPart['unit_of_measure'] ?? 'each',
+        ];
+        $row['action'] = ((int)($row['suggested_item']['quantity'] ?? 0) > 0) ? 'update_existing' : 'existing_noop';
+
+        if (!$this->areImportFieldsEquivalent($row['suggested_item']['unit_of_measure'] ?? '', $existingPart['unit_of_measure'] ?? '')) {
+            $this->recordImportIssue(
+                $row,
+                'existing_part_unit_conflict',
+                'unit_of_measure',
+                $forCommit ? 'error' : 'warning',
+                'Supplier Part Number already exists with a different unit of measure.',
+                'Change the unit to match the existing part or correct the supplier part number.'
+            );
+        }
+
+        if (!$this->areImportFieldsEquivalent($row['suggested_item']['name'] ?? '', $existingPart['name'] ?? '')) {
+            $this->recordImportIssue(
+                $row,
+                'existing_part_name_conflict',
+                'name',
+                $forCommit ? 'error' : 'warning',
+                'Supplier Part Number already exists with a different description.',
+                'Make the description match the existing part or correct the supplier part number.'
+            );
+        }
+
+        $existingSupplier = $this->normalizeString($existingPart['supplier_name'] ?? '');
+        $incomingSupplier = $this->normalizeString($row['suggested_item']['supplier_name'] ?? '');
+        if ($existingSupplier !== '' && $incomingSupplier !== '' && !$this->areImportFieldsEquivalent($incomingSupplier, $existingSupplier)) {
+            $this->recordImportIssue(
+                $row,
+                'existing_part_manufacturer_conflict',
+                'supplier_name',
+                $forCommit ? 'error' : 'warning',
+                'Supplier Part Number already exists with a different manufacturer.',
+                'Make the manufacturer match the existing part or correct the supplier part number.'
+            );
+        }
+    }
+
+    private function buildImportSummary(array $rows): array
+    {
+        $summary = [
+            'total_rows' => count($rows),
+            'ready_rows' => 0,
+            'review_rows' => 0,
+            'skipped_rows' => 0,
+            'create_rows' => 0,
+            'update_rows' => 0,
+            'master_only_rows' => 0,
+        ];
+
+        foreach ($rows as $row) {
+            $status = $row['status'] ?? 'ready';
+            if ($status === 'skip') {
+                $summary['skipped_rows']++;
+            } elseif ($status === 'review') {
+                $summary['review_rows']++;
+            } else {
+                $summary['ready_rows']++;
+            }
+
+            if ($status === 'skip') {
+                continue;
+            }
+
+            $action = $row['action'] ?? 'create';
+            if ($action === 'create') {
+                $summary['create_rows']++;
+            } elseif ($action === 'update_existing') {
+                $summary['update_rows']++;
+            } elseif ($action === 'create_master_only' || $action === 'existing_noop') {
+                $summary['master_only_rows']++;
+            }
+        }
+
+        return $summary;
+    }
+
+    private function buildInvalidImportRow(int $index, string $message, string $remediation): array
+    {
+        $row = [
+            'id' => sprintf('invalid:%d', $index + 1),
+            'sheet' => 'Sheet1',
+            'row' => $index + 1,
+            'status' => 'skip',
+            'action' => 'skip',
+            'issues' => [],
+            'modifications' => [],
+            'existing_part' => null,
+            'original' => [
+                'supplier_part_number' => '',
+                'description' => '',
+                'supplier_name' => '',
+                'location' => '',
+                'unit_of_measure' => '',
+                'quantity' => '',
+                'unit_price' => '',
+            ],
+            'suggested_item' => [],
+        ];
+
+        $this->recordImportIssue($row, 'invalid_row', 'row', 'error', $message, $remediation);
+
+        return $row;
+    }
+
+    private function recordImportIssue(
+        array &$row,
+        string $code,
+        string $field,
+        string $severity,
+        string $message,
+        string $remediation
+    ): void {
+        $row['issues'][] = [
+            'code' => $code,
+            'field' => $field,
+            'severity' => $severity,
+            'message' => $message,
+            'remediation' => $remediation,
+        ];
+
+        if ($severity === 'error') {
+            $this->escalateImportRowStatus($row, 'skip');
+            return;
+        }
+
+        $this->escalateImportRowStatus($row, 'review');
+    }
+
+    private function recordImportModification(
+        array &$row,
+        string $field,
+        $from,
+        $to,
+        string $reason
+    ): void {
+        if ((string)$from === (string)$to) {
+            return;
+        }
+
+        $row['modifications'][] = [
+            'field' => $field,
+            'from' => $from,
+            'to' => $to,
+            'reason' => $reason,
+        ];
+    }
+
+    private function escalateImportRowStatus(array &$row, string $status): void
+    {
+        $rank = [
+            'ready' => 1,
+            'review' => 2,
+            'skip' => 3,
+        ];
+
+        $current = $row['status'] ?? 'ready';
+        if (($rank[$status] ?? 1) > ($rank[$current] ?? 1)) {
+            $row['status'] = $status;
+        }
+    }
+
+    private function collectBlockingImportIssues(array $row): array
+    {
+        $issues = [];
+        foreach (($row['issues'] ?? []) as $issue) {
+            if (($issue['severity'] ?? '') === 'error') {
+                $issues[] = $issue;
+            }
+        }
+
+        if (empty($issues) && ($row['status'] ?? 'ready') === 'skip') {
+            $issues[] = [
+                'field' => 'row',
+                'message' => 'Row skipped during import.',
+                'remediation' => 'Review the row values and retry.',
+            ];
+        }
+
+        return $issues;
+    }
+
+    private function buildImportErrorItem(array $row, array $issue): array
+    {
+        $item = $row['suggested_item'] ?? [];
+        return [
+            'sheet' => $row['sheet'] ?? '',
+            'row' => $row['row'] ?? null,
+            'supplier_part_number' => $item['supplier_part_number'] ?? ($row['original']['supplier_part_number'] ?? ''),
+            'name' => $item['name'] ?? '',
+            'supplier_name' => $item['supplier_name'] ?? '',
+            'location' => $this->formatImportLocationForReport($item),
+            'field' => $issue['field'] ?? 'row',
+            'message' => $issue['message'] ?? 'Row skipped during import.',
+            'remediation' => $issue['remediation'] ?? 'Review the row values and retry.',
+        ];
+    }
+
+    private function buildImportRuntimeError(array $row, string $message, string $remediation): array
+    {
+        return $this->buildImportErrorItem($row, [
+            'field' => 'row',
+            'message' => $message,
+            'remediation' => $remediation,
+        ]);
+    }
+
+    private function buildLocationPayloadFromImportItem(array $item): array
+    {
+        return [
+            'location_raw' => $this->normalizeString($item['location_raw'] ?? ''),
+            'location_aisle' => $this->normalizeString($item['location_aisle'] ?? ''),
+            'location_shelf' => $this->normalizeString($item['location_shelf'] ?? ''),
+            'location_bay' => $this->normalizeString($item['location_bay'] ?? ''),
+            'location_alt' => $this->normalizeString($item['location_alt'] ?? ''),
+        ];
+    }
+
+    private function normalizeImportLocation(string $rawLocation, string $alternateLocation): array
+    {
+        $raw = $this->normalizeString($rawLocation);
+        $alt = $this->normalizeString($alternateLocation);
+        if ($raw === '' && $alt === '') {
+            return [
+                'missing' => true,
+                'location_raw' => '',
+                'location_aisle' => '',
+                'location_shelf' => '',
+                'location_bay' => '',
+                'location_alt' => '',
+                'modifications' => [],
+            ];
+        }
+
+        if ($raw === '') {
+            return [
+                'missing' => false,
+                'location_raw' => '',
+                'location_aisle' => '',
+                'location_shelf' => '',
+                'location_bay' => '',
+                'location_alt' => $alt,
+                'modifications' => [],
+            ];
+        }
+
+        $structured = $this->cleanStructuredImportLocation($raw);
+        if ($structured['is_structured']) {
+            return [
+                'missing' => false,
+                'location_raw' => $structured['cleaned'],
+                'location_aisle' => $structured['aisle'],
+                'location_shelf' => $structured['shelf'],
+                'location_bay' => $structured['bay'],
+                'location_alt' => $alt,
+                'modifications' => $structured['modifications'],
+            ];
+        }
+
+        return [
+            'missing' => false,
+            'location_raw' => '',
+            'location_aisle' => '',
+            'location_shelf' => '',
+            'location_bay' => '',
+            'location_alt' => $this->mergeImportAltLocations($raw, $alt),
+            'modifications' => [],
+        ];
+    }
+
+    private function cleanStructuredImportLocation(string $value): array
+    {
+        $original = $this->normalizeString($value);
+        $candidate = $original;
+        $modifications = [];
+
+        if ($original !== '' && preg_match('/^\d{3,}$/', $original)) {
+            $aisle = substr($original, 0, -2);
+            $shelf = substr($original, -2, 1);
+            $bay = substr($original, -1);
+            $cleaned = implode('-', [$aisle, $shelf, $bay]);
+
+            return [
+                'is_structured' => true,
+                'cleaned' => $cleaned,
+                'aisle' => $aisle,
+                'shelf' => $shelf,
+                'bay' => $bay,
+                'modifications' => $cleaned !== $original ? [[
+                    'from' => $original,
+                    'to' => $cleaned,
+                    'reason' => 'Expanded numeric location into aisle-shelf-bay format.',
+                ]] : [],
+            ];
+        }
+
+        if (preg_match('/^(?:shelf|shefl|self|shell)\s+(.+)$/i', $candidate, $matches)) {
+            $candidate = $this->normalizeString($matches[1]);
+            $modifications[] = [
+                'from' => $original,
+                'to' => $candidate,
+                'reason' => 'Removed shelf prefix before normalizing location.',
+            ];
+        } elseif (preg_match('/^[A-Za-z]+\s+([A-Za-z0-9].*[0-9].*)$/', $candidate, $matches)
+            && preg_match('/[-.\/, ]/', $matches[1])) {
+            $candidate = $this->normalizeString($matches[1]);
+            $modifications[] = [
+                'from' => $original,
+                'to' => $candidate,
+                'reason' => 'Removed leading text before the structured location value.',
+            ];
+        }
+
+        if (preg_match('/^([A-Za-z]+)\.(\d.+)$/', $candidate, $matches)) {
+            $adjusted = $matches[1] . $matches[2];
+            if ($adjusted !== $candidate) {
+                $modifications[] = [
+                    'from' => $candidate,
+                    'to' => $adjusted,
+                    'reason' => 'Joined letter prefix with the first numeric location token.',
+                ];
+                $candidate = $adjusted;
+            }
+        }
+
+        $normalizedPunctuation = preg_replace('/[^A-Za-z0-9]+/', '-', $candidate);
+        $normalizedPunctuation = preg_replace('/-+/', '-', (string)$normalizedPunctuation);
+        $normalizedPunctuation = trim((string)$normalizedPunctuation, '-');
+        if ($normalizedPunctuation !== '' && $normalizedPunctuation !== $candidate) {
+            $modifications[] = [
+                'from' => $candidate,
+                'to' => $normalizedPunctuation,
+                'reason' => 'Replaced punctuation with hyphens.',
+            ];
+            $candidate = $normalizedPunctuation;
+        }
+
+        $parts = array_values(array_filter(array_map('trim', explode('-', $candidate)), 'strlen'));
+        if (count($parts) === 2) {
+            $padded = implode('-', [$parts[0], $parts[1], '0']);
+            $modifications[] = [
+                'from' => $candidate,
+                'to' => $padded,
+                'reason' => 'Added 0 as the third location component.',
+            ];
+            $candidate = $padded;
+            $parts = [$parts[0], $parts[1], '0'];
+        }
+
+        if (count($parts) === 3) {
+            return [
+                'is_structured' => true,
+                'cleaned' => implode('-', $parts),
+                'aisle' => $parts[0],
+                'shelf' => $parts[1],
+                'bay' => $parts[2],
+                'modifications' => $modifications,
+            ];
+        }
+
+        return [
+            'is_structured' => false,
+            'cleaned' => '',
+            'aisle' => '',
+            'shelf' => '',
+            'bay' => '',
+            'modifications' => [],
+        ];
+    }
+
+    private function mergeImportAltLocations(string ...$values): string
+    {
+        $parts = [];
+        foreach ($values as $value) {
+            $clean = $this->normalizeString($value);
+            if ($clean === '' || in_array($clean, $parts, true)) {
+                continue;
+            }
+            $parts[] = $clean;
+        }
+
+        $merged = implode(' | ', $parts);
+        return strlen($merged) > 255 ? substr($merged, 0, 255) : $merged;
+    }
+
+    private function areImportFieldsEquivalent($left, $right): bool
+    {
+        return strtolower($this->normalizeString($left)) === strtolower($this->normalizeString($right));
+    }
+
+    private function isExplicitZeroImportValue(string $rawValue, $numericValue): bool
+    {
+        if ($this->normalizeString($rawValue) === '') {
+            return false;
+        }
+
+        return (float)$numericValue === 0.0;
+    }
+
+    private function formatImportLocationForReport(array $item): string
+    {
+        $alt = $this->normalizeString($item['location_alt'] ?? '');
+        if ($alt !== '') {
+            return $alt;
+        }
+
+        $parts = array_filter([
+            $this->normalizeString($item['location_aisle'] ?? ''),
+            $this->normalizeString($item['location_shelf'] ?? ''),
+            $this->normalizeString($item['location_bay'] ?? ''),
+        ], fn ($value) => $value !== '');
+
+        return !empty($parts) ? implode('-', $parts) : '';
     }
 
     private function getNextFowlerSequence(): int

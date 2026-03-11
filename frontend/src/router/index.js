@@ -105,6 +105,12 @@ const routes = [
     meta: { requiresAdmin: true }
   },
   {
+    path: '/logs',
+    name: 'Logs',
+    component: () => import('@/views/LogsView.vue'),
+    meta: { requiresAdmin: true }
+  },
+  {
     path: '/tests',
     name: 'Tests',
     component: () => import('@/tests/TestView.vue'),

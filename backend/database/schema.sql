@@ -174,6 +174,33 @@ CREATE TABLE IF NOT EXISTS users (
     INDEX idx_is_active (is_active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Audit Logs Table
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    category ENUM('user', 'action') NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    description VARCHAR(255) NOT NULL,
+    outcome ENUM('success', 'failure') NOT NULL DEFAULT 'success',
+    user_id INT NULL,
+    username VARCHAR(100) NULL,
+    display_name VARCHAR(255) NULL,
+    user_role VARCHAR(50) NULL,
+    auth_type VARCHAR(30) NULL,
+    http_method VARCHAR(10) NULL,
+    route_path VARCHAR(255) NULL,
+    ip_address VARCHAR(64) NULL,
+    user_agent VARCHAR(500) NULL,
+    origin VARCHAR(255) NULL,
+    resource_type VARCHAR(100) NULL,
+    resource_id VARCHAR(100) NULL,
+    request_payload LONGTEXT NULL,
+    metadata LONGTEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_category_created (category, created_at),
+    INDEX idx_username_created (username, created_at),
+    INDEX idx_route_created (route_path, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Insert default admin user (change in production)
 -- Password: PartsAdmin123!
 INSERT INTO users (username, password_hash, display_name, email, role, is_active) 
@@ -208,7 +235,7 @@ CREATE TABLE IF NOT EXISTS fowler_supplier_mapping (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Optional: Populate the mapping table with existing data from parts
-INSERT INTO fowler_supplier_mapping (fowler_part_number, part_id, supplier_id, supplier_part_number, is_primary)
+INSERT IGNORE INTO fowler_supplier_mapping (fowler_part_number, part_id, supplier_id, supplier_part_number, is_primary)
 SELECT 
     fowler_part_number,
     id as part_id,

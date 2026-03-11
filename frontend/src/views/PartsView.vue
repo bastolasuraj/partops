@@ -435,29 +435,34 @@
               <p v-if="importParseError" class="text-xs text-red-600 mt-1">{{ importParseError }}</p>
             </div>
 
-            <div v-if="importParsing" class="flex items-center gap-2 text-sm text-gray-600">
+            <div v-if="importParsing || importAnalyzing || importLoading" class="flex items-center gap-2 text-sm text-gray-600">
               <span class="spinner w-4 h-4"></span>
-              Parsing spreadsheet...
+              <span v-if="importParsing">Parsing spreadsheet...</span>
+              <span v-else-if="importAnalyzing">Analyzing rows and preparing review buckets...</span>
+              <span v-else>Importing approved rows...</span>
             </div>
-            <div v-if="importLoading" class="space-y-2 text-sm text-gray-600">
-              <div class="flex items-center justify-between">
-                <span>Uploading {{ importProgress.processed }} / {{ importProgress.total }}</span>
-                <span>{{ importProgress.percent }}%</span>
+
+            <div v-if="importSummary" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div class="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+                <div class="text-xs uppercase tracking-wide text-blue-700">Ready</div>
+                <div class="text-2xl font-bold">{{ importSummary.ready_rows || 0 }}</div>
+                <div class="text-xs text-blue-700">Will import as-is</div>
               </div>
-              <div class="h-2 bg-gray-200 rounded">
-                <div
-                  class="h-2 bg-blue-600 rounded transition-all duration-300"
-                  :style="{ width: `${importProgress.percent}%` }"
-                ></div>
+              <div class="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <div class="text-xs uppercase tracking-wide text-amber-700">Review</div>
+                <div class="text-2xl font-bold">{{ importSummary.review_rows || 0 }}</div>
+                <div class="text-xs text-amber-700">Needs your decision</div>
               </div>
-              <div class="text-xs text-gray-500">
-                Remaining: {{ Math.max(importProgress.total - importProgress.processed, 0) }}
+              <div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+                <div class="text-xs uppercase tracking-wide text-red-700">No Upload</div>
+                <div class="text-2xl font-bold">{{ importSummary.skipped_rows || 0 }}</div>
+                <div class="text-xs text-red-700">Blocked unless you move rows to review</div>
               </div>
             </div>
 
-            <div v-if="importItems.length" class="space-y-3">
+            <div v-if="importReadyItems.length" class="space-y-3">
               <div class="text-sm text-gray-700">
-                Ready to import <span class="font-semibold">{{ importItems.length }}</span> part(s).
+                Ready rows: <span class="font-semibold">{{ importReadyItems.length }}</span>
               </div>
               <div class="border border-gray-200 rounded-lg overflow-hidden">
                 <table class="data-table text-sm">
@@ -472,97 +477,199 @@
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="item in importPreview" :key="item.supplier_part_number">
-                      <td class="font-mono text-gray-600">{{ item.supplier_part_number }}</td>
-                      <td>{{ item.name }}</td>
-                      <td>{{ item.supplier_name || 'N/A' }}</td>
-                      <td>{{ item.location_raw || formatImportLocation(item) }}</td>
-                      <td>{{ item.unit_of_measure || 'each' }}</td>
-                      <td>{{ item.quantity }}</td>
+                    <tr v-for="item in importPreview" :key="item.id">
+                      <td class="font-mono text-gray-600">{{ item.suggested_item.supplier_part_number }}</td>
+                      <td>{{ item.suggested_item.name }}</td>
+                      <td>{{ item.suggested_item.supplier_name || 'N/A' }}</td>
+                      <td>{{ formatImportLocation(item.suggested_item) || '-' }}</td>
+                      <td>{{ item.suggested_item.unit_of_measure || 'each' }}</td>
+                      <td>{{ item.suggested_item.quantity }}</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              <p class="text-xs text-gray-500">Preview shows the first 5 rows.</p>
+              <p class="text-xs text-gray-500">Preview shows the first 5 ready rows.</p>
+            </div>
+
+            <div v-if="importReviewItems.length" class="space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="text-sm text-gray-700">
+                  Review rows: <span class="font-semibold">{{ importReviewItems.length }}</span>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button type="button" class="btn-outline text-xs" @click="acceptAllSuggestedReviewRows">Accept All Cleanups</button>
+                  <button type="button" class="btn-outline text-xs" @click="skipAllReviewRows">Skip All Review Rows</button>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between text-xs text-gray-500">
+                <span>Showing {{ (importReviewPage - 1) * importRowsPerPage + 1 }} - {{ Math.min(importReviewPage * importRowsPerPage, importReviewItems.length) }} of {{ importReviewItems.length }}</span>
+                <div class="flex items-center gap-2">
+                  <button type="button" class="btn-outline text-xs" :disabled="importReviewPage === 1" @click="importReviewPage = Math.max(1, importReviewPage - 1)">Prev</button>
+                  <span>Page {{ importReviewPage }} / {{ importReviewTotalPages }}</span>
+                  <button type="button" class="btn-outline text-xs" :disabled="importReviewPage >= importReviewTotalPages" @click="importReviewPage = Math.min(importReviewTotalPages, importReviewPage + 1)">Next</button>
+                </div>
+              </div>
+
+              <div
+                v-for="item in paginatedImportReviewItems"
+                :key="item.id"
+                class="rounded-lg border border-amber-200 bg-amber-50/50 p-4 space-y-3"
+              >
+                <div class="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <div class="text-sm font-semibold text-gray-900">
+                      {{ item.sheet }} row {{ item.row }}
+                    </div>
+                    <div class="text-xs text-gray-600">
+                      Original supplier PN: {{ item.original?.supplier_part_number || 'blank' }}
+                    </div>
+                    <div v-if="item.existing_part" class="text-xs text-amber-800 mt-1">
+                      Existing part: {{ item.existing_part.fowler_part_number || 'N/A' }} / {{ item.existing_part.name || 'N/A' }}
+                    </div>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <button type="button" class="btn-outline text-xs" @click="item.decision = 'suggested'">Use Suggestion</button>
+                    <button type="button" class="btn-outline text-xs" @click="item.decision = 'edit'">Edit</button>
+                    <button type="button" class="btn-outline text-xs" @click="item.decision = 'skip'">Skip</button>
+                  </div>
+                </div>
+
+                <div v-if="item.modifications?.length" class="text-xs text-amber-900 space-y-1">
+                  <div v-for="(change, index) in item.modifications" :key="`${item.id}-change-${index}`">
+                    {{ change.field }}: {{ formatImportDisplayValue(change.from) }} -> {{ formatImportDisplayValue(change.to) }} ({{ change.reason }})
+                  </div>
+                </div>
+
+                <div v-if="item.issues?.length" class="text-xs text-amber-900 space-y-1">
+                  <div v-for="(issue, index) in item.issues" :key="`${item.id}-issue-${index}`">
+                    {{ issue.message }} {{ issue.remediation }}
+                  </div>
+                </div>
+
+                <div v-if="item.decision === 'suggested'" class="rounded-lg border border-white bg-white p-3 text-sm text-gray-700">
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div><span class="font-medium">Supplier PN:</span> {{ item.suggested_item.supplier_part_number || 'blank' }}</div>
+                    <div><span class="font-medium">Name:</span> {{ item.suggested_item.name || 'blank' }}</div>
+                    <div><span class="font-medium">Supplier:</span> {{ item.suggested_item.supplier_name || 'blank' }}</div>
+                    <div><span class="font-medium">Location:</span> {{ formatImportLocation(item.suggested_item) || 'blank' }}</div>
+                    <div><span class="font-medium">Unit:</span> {{ item.suggested_item.unit_of_measure || 'each' }}</div>
+                    <div><span class="font-medium">Qty / Cost:</span> {{ item.suggested_item.quantity }} / {{ item.suggested_item.unit_price }}</div>
+                  </div>
+                </div>
+
+                <div v-else-if="item.decision === 'edit'" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label class="form-label">Supplier PN</label>
+                    <input v-model="item.custom_item.supplier_part_number" class="form-input">
+                  </div>
+                  <div>
+                    <label class="form-label">Name</label>
+                    <input v-model="item.custom_item.name" class="form-input">
+                  </div>
+                  <div>
+                    <label class="form-label">Description</label>
+                    <input v-model="item.custom_item.description" class="form-input">
+                  </div>
+                  <div>
+                    <label class="form-label">Manufacturer</label>
+                    <input v-model="item.custom_item.supplier_name" class="form-input">
+                  </div>
+                  <div>
+                    <label class="form-label">Location</label>
+                    <input v-model="item.custom_item.location_raw" class="form-input" placeholder="Aisle-Shelf-Bay">
+                  </div>
+                  <div>
+                    <label class="form-label">Alternate Location</label>
+                    <input v-model="item.custom_item.location_alt" class="form-input">
+                  </div>
+                  <div>
+                    <label class="form-label">Unit</label>
+                    <input v-model="item.custom_item.unit_of_measure" class="form-input">
+                  </div>
+                  <div>
+                    <label class="form-label">Low Stock Threshold</label>
+                    <input v-model.number="item.custom_item.low_stock_threshold" type="number" min="0" class="form-input">
+                  </div>
+                  <div>
+                    <label class="form-label">Quantity</label>
+                    <input v-model.number="item.custom_item.quantity" type="number" class="form-input">
+                  </div>
+                  <div>
+                    <label class="form-label">Cost / Unit</label>
+                    <input v-model.number="item.custom_item.unit_price" type="number" step="0.01" min="0" class="form-input">
+                  </div>
+                </div>
+
+                <div v-else class="rounded-lg border border-dashed border-red-300 bg-red-50 p-3 text-sm text-red-700">
+                  This row will be skipped during import.
+                </div>
+              </div>
+            </div>
+
+            <div v-if="importSkippedItems.length" class="space-y-3">
+              <div class="text-sm text-gray-700">
+                No-upload rows: <span class="font-semibold">{{ importSkippedItems.length }}</span>
+              </div>
+              <div class="flex items-center justify-between text-xs text-gray-500">
+                <span>Showing {{ (importSkippedPage - 1) * importRowsPerPage + 1 }} - {{ Math.min(importSkippedPage * importRowsPerPage, importSkippedItems.length) }} of {{ importSkippedItems.length }}</span>
+                <div class="flex items-center gap-2">
+                  <button type="button" class="btn-outline text-xs" :disabled="importSkippedPage === 1" @click="importSkippedPage = Math.max(1, importSkippedPage - 1)">Prev</button>
+                  <span>Page {{ importSkippedPage }} / {{ importSkippedTotalPages }}</span>
+                  <button type="button" class="btn-outline text-xs" :disabled="importSkippedPage >= importSkippedTotalPages" @click="importSkippedPage = Math.min(importSkippedTotalPages, importSkippedPage + 1)">Next</button>
+                </div>
+              </div>
+              <div
+                v-for="item in paginatedImportSkippedItems"
+                :key="item.id"
+                class="rounded-lg border border-red-200 bg-red-50 p-4 space-y-2"
+              >
+                <div class="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <div class="text-sm font-semibold text-red-900">{{ item.sheet }} row {{ item.row }}</div>
+                    <div class="text-xs text-red-700">Supplier PN: {{ item.original?.supplier_part_number || 'blank' }}</div>
+                  </div>
+                  <button type="button" class="btn-outline text-xs" @click="moveSkippedRowToReview(item.id)">Edit Row</button>
+                </div>
+                <div class="text-xs text-red-800 space-y-1">
+                  <div v-for="(issue, index) in item.issues || []" :key="`${item.id}-blocked-${index}`">
+                    {{ issue.message }} {{ issue.remediation }}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div v-if="importStats" class="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800 space-y-1">
               <div>
-                Imported: {{ importStats.created }}
-                | Duplicates skipped (existing): {{ importStats.duplicates }}
-                | File duplicate rows flagged: {{ importFileDuplicates.length }}
-                | Empty rows skipped: {{ importStats.skipped }}
-                | Suppliers created: {{ importStats.suppliers_created }}
-                | Errors: {{ importStats.errors }}
+                Created: {{ importStats.created || 0 }}
+                | Existing updated: {{ importStats.existing_updated || 0 }}
+                | Master only: {{ importStats.master_only_created || 0 }}
+                | Unchanged: {{ importStats.unchanged || 0 }}
+                | Skipped: {{ importStats.skipped || 0 }}
+                | Errors: {{ importStats.errors || 0 }}
+                | Suppliers created: {{ importStats.suppliers_created || 0 }}
               </div>
-              <div v-if="importDuplicateItems.length || importFileDuplicates.length" class="text-xs text-green-700">
-                Duplicate report is available to download below.
-              </div>
-              <div v-if="importDuplicateItems.length || importFileDuplicates.length" class="text-xs text-green-700">
-                Report includes two sheets: `Existing Duplicates` (already in database) and `File Duplicates` (repeated rows in uploaded file, including unit checks).
-              </div>
-              <div v-if="importMissingItems.length || importDuplicateItems.length || importFileDuplicates.length" class="pt-2 flex flex-wrap gap-2">
-                <button
-                  v-if="importMissingItems.length"
-                  type="button"
-                  class="btn-outline text-xs"
-                  @click="downloadMissingReport"
-                >
-                  Download Missing Info
-                </button>
-                <button
-                  v-if="importDuplicateItems.length || importFileDuplicates.length"
-                  type="button"
-                  class="btn-outline text-xs"
-                  @click="downloadDuplicatesReport"
-                >
-                  Download Duplicates
-                </button>
-              </div>
-            </div>
-
-            <div v-if="importDuplicateItems.length" class="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-              <div class="font-semibold mb-2">Existing duplicates (sample)</div>
-              <ul class="space-y-1 text-xs text-amber-900">
-                <li v-for="(item, index) in importDuplicateItems.slice(0, 5)" :key="`dup-${index}`">
-                  Supplier PN {{ item.supplier_part_number }} already exists (Fowler {{ item.existing_fowler_part_number || 'N/A' }}, {{ item.existing_name || 'N/A' }})
-                  <span v-if="(item.incoming_unit_of_measure || 'each') !== (item.existing_unit_of_measure || 'each')">
-                    | unit mismatch: incoming {{ item.incoming_unit_of_measure || 'each' }}, existing {{ item.existing_unit_of_measure || 'each' }}
-                  </span>
-                </li>
-              </ul>
-              <div v-if="importDuplicateItems.length > 5" class="text-xs text-amber-700 mt-2">
-                Showing 5 of {{ importDuplicateItems.length }}. See duplicates report for full list.
-              </div>
-            </div>
-
-            <div v-if="importFileDuplicates.length" class="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-              <div class="font-semibold mb-2">File duplicate rows (sample)</div>
-              <ul class="space-y-1 text-xs text-amber-900">
-                <li v-for="(item, index) in importFileDuplicates.slice(0, 5)" :key="`file-dup-${index}`">
-                  Supplier PN {{ item.supplier_part_number }} row {{ item.source_row || '-' }}: {{ item.remarks || 'duplicate in file (same supplier + unit + location; quantity merged)' }}
-                </li>
-              </ul>
-              <div v-if="importFileDuplicates.length > 5" class="text-xs text-amber-700 mt-2">
-                Showing 5 of {{ importFileDuplicates.length }}. See duplicates report for full list.
+              <div v-if="importNoUploadRows.length" class="pt-2">
+                <button type="button" class="btn-outline text-xs" @click="downloadNoUploadReport">Download No Uploads</button>
               </div>
             </div>
 
             <div v-if="importErrors.length" class="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">
-              <div class="font-semibold mb-2">Sample errors</div>
+              <div class="font-semibold mb-2">No-upload details</div>
               <ul class="space-y-1">
-                <li v-for="(error, index) in importErrors" :key="index">
-                  Row {{ error.row }} ({{ error.supplier_part_number }}): {{ error.message }}
+                <li v-for="(error, index) in importErrors.slice(0, 10)" :key="index">
+                  {{ error.sheet }} row {{ error.row }} ({{ error.supplier_part_number || 'blank' }}): {{ error.message }} {{ error.remediation }}
                 </li>
               </ul>
             </div>
           </div>
 
           <div class="p-6 border-t border-gray-100 flex justify-end gap-3 bg-gray-50 rounded-b-xl">
+            <button v-if="importNoUploadRows.length" @click="downloadNoUploadReport" class="btn-outline">Download No Uploads</button>
             <button @click="closeImportModal" class="btn-outline">Close</button>
-            <button @click="submitBulkImport" :disabled="importItems.length === 0 || importLoading" class="btn-primary">
+            <button @click="submitBulkImport" :disabled="importSelectedCount === 0 || importParsing || importAnalyzing || importLoading" class="btn-primary">
               <span v-if="importLoading" class="spinner w-4 h-4"></span>
-              <span v-else>Import</span>
+              <span v-else>Import {{ importSelectedCount }} Selected</span>
             </button>
           </div>
         </div>
@@ -702,18 +809,18 @@ const showImportModal = ref(false)
 const importFileName = ref('')
 const importItems = ref([])
 const importParsing = ref(false)
+const importAnalyzing = ref(false)
 const importLoading = ref(false)
 const importParseError = ref('')
 const importStats = ref(null)
+const importSummary = ref(null)
+const importReadyItems = ref([])
+const importReviewItems = ref([])
+const importSkippedItems = ref([])
 const importErrors = ref([])
-const importMissingItems = ref([])
-const importDuplicateItems = ref([])
-const importFileDuplicates = ref([])
-const importProgress = ref({
-  total: 0,
-  processed: 0,
-  percent: 0
-})
+const importReviewPage = ref(1)
+const importSkippedPage = ref(1)
+const importRowsPerPage = 25
 const qrCache = ref({})
 const pendingQr = new Set()
 const qrLightbox = ref({
@@ -795,8 +902,56 @@ const visiblePages = computed(() => {
   return pages
 })
 
-const importPreview = computed(() => {
-  return importItems.value.slice(0, 5)
+const importPreview = computed(() => importReadyItems.value.slice(0, 5))
+
+const importSelectedCount = computed(() => {
+  return importReadyItems.value.length + importReviewItems.value.filter(item => item.decision !== 'skip').length
+})
+
+const importReviewTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(importReviewItems.value.length / importRowsPerPage))
+})
+
+const paginatedImportReviewItems = computed(() => {
+  const start = (importReviewPage.value - 1) * importRowsPerPage
+  return importReviewItems.value.slice(start, start + importRowsPerPage)
+})
+
+const importSkippedTotalPages = computed(() => {
+  return Math.max(1, Math.ceil(importSkippedItems.value.length / importRowsPerPage))
+})
+
+const paginatedImportSkippedItems = computed(() => {
+  const start = (importSkippedPage.value - 1) * importRowsPerPage
+  return importSkippedItems.value.slice(start, start + importRowsPerPage)
+})
+
+const importNoUploadRows = computed(() => {
+  const skippedByAnalysis = importSkippedItems.value.map(item => ({
+    sheet: item.sheet,
+    row: item.row,
+    supplier_part_number: item.original?.supplier_part_number || item.suggested_item?.supplier_part_number || '',
+    name: item.suggested_item?.name || item.original?.description || '',
+    supplier_name: item.suggested_item?.supplier_name || item.original?.supplier_name || '',
+    location: item.original?.location || formatImportLocation(item.suggested_item || item) || '',
+    message: (item.issues || []).map(issue => issue.message).join(' | ') || 'Skipped during analysis',
+    remediation: (item.issues || []).map(issue => issue.remediation).join(' | ') || 'Review the row and upload again.'
+  }))
+
+  const skippedByUser = importReviewItems.value
+    .filter(item => item.decision === 'skip')
+    .map(item => ({
+      sheet: item.sheet,
+      row: item.row,
+      supplier_part_number: item.original?.supplier_part_number || item.suggested_item?.supplier_part_number || '',
+      name: item.suggested_item?.name || item.original?.description || '',
+      supplier_name: item.suggested_item?.supplier_name || item.original?.supplier_name || '',
+      location: formatImportLocation(item.suggested_item || item) || item.original?.location || '',
+      message: 'Skipped by user during review',
+      remediation: 'Edit the row in the review panel and import again if it should be included.'
+    }))
+
+  return [...skippedByAnalysis, ...skippedByUser, ...importErrors.value]
 })
 
 // Get unique Fowler PNs
@@ -829,11 +984,14 @@ const getPartCountForFowlerPn = (fowlerPn) => {
 
 const importHeaderMap = {
   'part number': 'supplier_part_number',
+  'partnumber': 'supplier_part_number',
   'part#': 'supplier_part_number',
   'part #': 'supplier_part_number',
   'part no': 'supplier_part_number',
   'part pn': 'supplier_part_number',
   'pn': 'supplier_part_number',
+  'r': 'supplier_part_number',
+  'lock': 'supplier_part_number',
   'supplier part number': 'supplier_part_number',
   'supplier part #': 'supplier_part_number',
   'supplier part no': 'supplier_part_number',
@@ -866,6 +1024,8 @@ const importHeaderMap = {
   'unit cost': 'unit_price',
   'unit price': 'unit_price',
   'price': 'unit_price',
+  'low stock threshold': 'low_stock_threshold',
+  'min stock': 'low_stock_threshold',
   'fowler part number': 'fowler_part_number',
   'fowler pn': 'fowler_part_number',
   'fowler part #': 'fowler_part_number'
@@ -973,11 +1133,11 @@ const formatLocation = (part) => {
 }
 
 const formatImportLocation = (item) => {
-  if (item?.location_alt) {
-    return item.location_alt
-  }
   const loc = [item.location_aisle, item.location_shelf, item.location_bay].filter(Boolean)
-  return loc.length > 0 ? loc.join('-') : '-'
+  if (loc.length > 0) {
+    return loc.join('-')
+  }
+  return item?.location_alt || '-'
 }
 
 const buildQrPayload = (type, value) => {
@@ -1281,14 +1441,17 @@ const resetImportState = () => {
   importFileName.value = ''
   importItems.value = []
   importParsing.value = false
+  importAnalyzing.value = false
   importLoading.value = false
   importParseError.value = ''
   importStats.value = null
+  importSummary.value = null
+  importReadyItems.value = []
+  importReviewItems.value = []
+  importSkippedItems.value = []
   importErrors.value = []
-  importMissingItems.value = []
-  importDuplicateItems.value = []
-  importFileDuplicates.value = []
-  importProgress.value = { total: 0, processed: 0, percent: 0 }
+  importReviewPage.value = 1
+  importSkippedPage.value = 1
 }
 
 const openImportModal = () => {
@@ -1312,75 +1475,56 @@ const handleImportFile = async (event) => {
   try {
     const data = await file.arrayBuffer()
     const workbook = XLSX.read(data, { type: 'array' })
-    const { items, missingItems } = parseWorkbook(workbook)
-    const { items: dedupedItems, duplicates } = dedupeImportItems(items)
-    importItems.value = dedupedItems
-    importFileDuplicates.value = duplicates
-    importMissingItems.value = missingItems
+    const { items } = parseWorkbook(workbook)
+    importItems.value = items
 
     if (importItems.value.length === 0) {
+      importParseError.value = 'No usable rows found. Check headers and try again.'
+      return
+    }
+
+    importAnalyzing.value = true
+    const response = await partsApi.analyzeBulkImport(importItems.value)
+    const payload = response?.data ?? {}
+    importSummary.value = payload.summary || null
+    importReadyItems.value = Array.isArray(payload.ready_items) ? payload.ready_items : []
+    importReviewItems.value = (Array.isArray(payload.review_items) ? payload.review_items : []).map(createReviewRowState)
+    importSkippedItems.value = Array.isArray(payload.skipped_items) ? payload.skipped_items : []
+    importReviewPage.value = 1
+    importSkippedPage.value = 1
+
+    if (
+      importReadyItems.value.length === 0 &&
+      importReviewItems.value.length === 0 &&
+      importSkippedItems.value.length === 0
+    ) {
       importParseError.value = 'No usable rows found. Check headers and try again.'
     }
   } catch (error) {
     console.error('Import parse failed:', error)
-    importParseError.value = 'Could not read the file. Try saving as .xlsx or .csv.'
+    importParseError.value = error.response?.data?.message || 'Could not read the file. Try saving as .xlsx or .csv.'
   } finally {
     importParsing.value = false
+    importAnalyzing.value = false
   }
 }
 
 const submitBulkImport = async () => {
-  if (importItems.value.length === 0) return
+  if (importSelectedCount.value === 0) return
 
   try {
     importLoading.value = true
-    importProgress.value = {
-      total: importItems.value.length,
-      processed: 0,
-      percent: 0
-    }
-    const aggregateStats = {
-      processed: 0,
-      created: 0,
-      duplicates: 0,
-      skipped: 0,
-      errors: 0,
-      suppliers_created: 0
-    }
-    const aggregateErrors = []
-    const aggregateDuplicateItems = []
-    const batchSize = 100
-
-    for (let i = 0; i < importItems.value.length; i += batchSize) {
-      const batch = importItems.value.slice(i, i + batchSize)
-      const response = await partsApi.bulkImport(batch)
-      const stats = response.data?.stats || {}
-
-      aggregateStats.processed += stats.processed || 0
-      aggregateStats.created += stats.created || 0
-      aggregateStats.duplicates += stats.duplicates || 0
-      aggregateStats.skipped += stats.skipped || 0
-      aggregateStats.errors += stats.errors || 0
-      aggregateStats.suppliers_created += stats.suppliers_created || 0
-
-      if (Array.isArray(response.data?.errors)) {
-        aggregateErrors.push(...response.data.errors)
-      }
-      if (Array.isArray(response.data?.duplicate_items)) {
-        aggregateDuplicateItems.push(...response.data.duplicate_items)
-      }
-
-      const processed = Math.min(i + batch.length, importProgress.value.total)
-      importProgress.value = {
-        total: importProgress.value.total,
-        processed,
-        percent: Math.round((processed / importProgress.value.total) * 100)
-      }
-    }
-
-    importStats.value = aggregateStats
-    importErrors.value = aggregateErrors.slice(0, 25)
-    importDuplicateItems.value = aggregateDuplicateItems
+    const payload = [
+      ...importReadyItems.value.map(item => cloneImportPayload(item.suggested_item)),
+      ...importReviewItems.value
+        .filter(item => item.decision !== 'skip')
+        .map(item => cloneImportPayload(item.decision === 'edit' ? item.custom_item : item.suggested_item))
+    ]
+    const response = await partsApi.bulkImport(payload)
+    importStats.value = response.data?.stats || null
+    importErrors.value = Array.isArray(response.data?.no_upload_items)
+      ? response.data.no_upload_items
+      : (Array.isArray(response.data?.errors) ? response.data.errors : [])
     showToast('Success', 'Bulk import completed')
     fetchParts()
   } catch (error) {
@@ -1390,142 +1534,120 @@ const submitBulkImport = async () => {
   }
 }
 
-const downloadMissingReport = () => {
-  if (importMissingItems.value.length === 0) return
-
+const downloadNoUploadReport = () => {
+  if (importNoUploadRows.value.length === 0) return
   const headers = [
     'Sheet',
     'Row',
     'Part Number',
-    'Description',
+    'Name',
     'Manufacturer',
     'Location',
-    'Unit',
-    'Quantity',
-    'Cost/Unit',
-    'Remarks'
+    'Message',
+    'Remediation'
   ]
 
-  const rows = importMissingItems.value.map(item => [
+  const rows = importNoUploadRows.value.map(item => [
     item.sheet,
     item.row,
-    item.part_number,
-    item.description,
-    item.manufacturer,
+    item.supplier_part_number,
+    item.name,
+    item.supplier_name,
     item.location,
-    item.unit_of_measure || 'each',
-    item.quantity,
-    item.unit_price,
-    item.remarks
+    item.message,
+    item.remediation
   ])
 
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
   const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Missing Items')
+  XLSX.utils.book_append_sheet(wb, ws, 'No Uploads')
 
   const today = new Date().toISOString().slice(0, 10)
-  XLSX.writeFile(wb, `missing_items_${today}.xlsx`)
+  XLSX.writeFile(wb, `no_uploads_${today}.xlsx`)
 }
 
-const downloadDuplicatesReport = () => {
-  if (importDuplicateItems.value.length === 0 && importFileDuplicates.value.length === 0) return
-
-  const wb = XLSX.utils.book_new()
-  const guideRows = [
-    ['Sheet', 'Purpose', 'Why it matters'],
-    [
-      'Existing Duplicates',
-      'Rows skipped because Supplier Part Number already exists in the database.',
-      'Prevents creating a second master record for the same supplier part number and preserves data integrity.'
-    ],
-    [
-      'File Duplicates',
-      'Rows where Supplier Part Number appears more than once in the uploaded file.',
-      'Only exact duplicates (same supplier PN + unit + location) are merged; this sheet also flags unit mismatches for manual review.'
-    ]
-  ]
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(guideRows), 'How to Use')
-
-  if (importFileDuplicates.value.length > 0) {
-    const headers = [
-      'Source',
-      'Sheet',
-      'Row',
-      'Supplier Part Number',
-      'Name',
-      'Manufacturer',
-      'Location',
-      'Unit',
-      'Merged Unit (Import)',
-      'Quantity',
-      'Cost/Unit',
-      'Remarks'
-    ]
-    const rows = importFileDuplicates.value.map(item => [
-      'file',
-      item.source_sheet || '',
-      item.source_row || '',
-      item.supplier_part_number || '',
-      item.name || item.description || '',
-      item.supplier_name || '',
-      item.location_raw || item.location_alt || '',
-      item.unit_of_measure || 'each',
-      item.merged_unit_of_measure || item.unit_of_measure || 'each',
-      item.quantity ?? '',
-      item.unit_price ?? '',
-      item.remarks || 'duplicate in file (same supplier + unit + location; quantity merged)'
-    ])
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
-    XLSX.utils.book_append_sheet(wb, ws, 'File Duplicates')
+const createReviewRowState = (row) => ({
+  ...row,
+  decision: 'suggested',
+  custom_item: {
+    supplier_part_number: row.suggested_item?.supplier_part_number || row.original?.supplier_part_number || '',
+    name: row.suggested_item?.name || row.original?.description || '',
+    description: row.suggested_item?.description || row.original?.description || '',
+    supplier_name: row.suggested_item?.supplier_name || row.original?.supplier_name || '',
+    unit_of_measure: row.suggested_item?.unit_of_measure || row.original?.unit_of_measure || 'each',
+    location_raw: row.suggested_item?.location_raw || row.original?.location || '',
+    location_aisle: row.suggested_item?.location_aisle || '',
+    location_shelf: row.suggested_item?.location_shelf || '',
+    location_bay: row.suggested_item?.location_bay || '',
+    location_alt: row.suggested_item?.location_alt || '',
+    quantity: row.suggested_item?.quantity ?? 0,
+    unit_price: row.suggested_item?.unit_price ?? 0,
+    low_stock_threshold: row.suggested_item?.low_stock_threshold ?? 5,
+    source_sheet: row.suggested_item?.source_sheet || row.sheet,
+    source_row: row.suggested_item?.source_row || row.row
   }
+})
 
-  if (importDuplicateItems.value.length > 0) {
-    const headers = [
-      'Source',
-      'Sheet',
-      'Row',
-      'Supplier Part Number',
-      'Incoming Name',
-      'Incoming Unit',
-      'Existing Part ID',
-      'Existing Fowler PN',
-      'Existing Name',
-      'Existing Unit',
-      'Remarks'
-    ]
-    const rows = importDuplicateItems.value.map(item => [
-      'existing',
-      item.sheet || '',
-      item.row || '',
-      item.supplier_part_number || '',
-      item.incoming_name || '',
-      item.incoming_unit_of_measure || 'each',
-      item.existing_part_id || '',
-      item.existing_fowler_part_number || '',
-      item.existing_name || '',
-      item.existing_unit_of_measure || 'each',
-      (item.incoming_unit_of_measure || 'each') !== (item.existing_unit_of_measure || 'each')
-        ? `already in database; unit mismatch: incoming=${item.incoming_unit_of_measure || 'each'}, existing=${item.existing_unit_of_measure || 'each'}`
-        : 'already in database'
-    ])
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
-    XLSX.utils.book_append_sheet(wb, ws, 'Existing Duplicates')
+const cloneImportPayload = (item = {}) => ({
+  supplier_part_number: normalizeString(item.supplier_part_number),
+  name: normalizeString(item.name || item.description),
+  description: normalizeString(item.description || item.name),
+  supplier_name: normalizeString(item.supplier_name),
+  unit_of_measure: normalizeUnitOfMeasure(item.unit_of_measure),
+  location_raw: normalizeString(item.location_raw),
+  location_aisle: normalizeString(item.location_aisle),
+  location_shelf: normalizeString(item.location_shelf),
+  location_bay: normalizeString(item.location_bay),
+  location_alt: normalizeString(item.location_alt),
+  quantity: parseQuantity(item.quantity),
+  unit_price: parseUnitPrice(item.unit_price),
+  low_stock_threshold: Math.max(0, Math.round(normalizeNumber(item.low_stock_threshold ?? 5))),
+  source_sheet: normalizeString(item.source_sheet),
+  source_row: Math.max(1, Math.round(normalizeNumber(item.source_row || 1)))
+})
+
+const acceptAllSuggestedReviewRows = () => {
+  importReviewItems.value = importReviewItems.value.map(item => ({
+    ...item,
+    decision: 'suggested'
+  }))
+}
+
+const skipAllReviewRows = () => {
+  importReviewItems.value = importReviewItems.value.map(item => ({
+    ...item,
+    decision: 'skip'
+  }))
+}
+
+const moveSkippedRowToReview = (rowId) => {
+  const index = importSkippedItems.value.findIndex(item => item.id === rowId)
+  if (index === -1) return
+  const [row] = importSkippedItems.value.splice(index, 1)
+  importReviewItems.value.push({
+    ...createReviewRowState(row),
+    decision: 'edit'
+  })
+  importSkippedPage.value = Math.min(importSkippedPage.value, importSkippedTotalPages.value)
+  importReviewPage.value = importReviewTotalPages.value
+}
+
+const formatImportDisplayValue = (value) => {
+  if (value === null || value === undefined || value === '') {
+    return 'blank'
   }
-
-  const today = new Date().toISOString().slice(0, 10)
-  XLSX.writeFile(wb, `duplicates_skipped_${today}.xlsx`)
+  return String(value)
 }
 
 const parseWorkbook = (workbook) => {
   const items = []
-  const missingItems = []
 
   workbook.SheetNames.forEach((sheetName) => {
     const sheet = workbook.Sheets[sheetName]
     const rows = XLSX.utils.sheet_to_json(sheet, {
       header: 1,
-      raw: false,
-      defval: ''
+      raw: true,
+      defval: null
     })
 
     const headerInfo = findHeaderRow(rows)
@@ -1546,20 +1668,14 @@ const parseWorkbook = (workbook) => {
         continue
       }
 
-      const { item, missingInfo } = buildImportItem(rowData, {
+      items.push(buildParsedImportRow(rowData, {
         sheetName,
         rowNumber: rowIndex + 1
-      })
-      if (missingInfo) {
-        missingItems.push(missingInfo)
-      }
-      if (item) {
-        items.push(item)
-      }
+      }))
     }
   })
 
-  return { items, missingItems }
+  return { items }
 }
 
 const findHeaderRow = (rows) => {
@@ -1576,6 +1692,18 @@ const findHeaderRow = (rows) => {
         columnMap[index] = importHeaderMap[key]
       }
     })
+
+    const rowLooksLikeTemplate =
+      columnMap[0] === 'supplier_part_number' ||
+      (columnMap[0] === undefined && (
+        Object.values(columnMap).includes('name') ||
+        Object.values(columnMap).includes('supplier_name') ||
+        Object.values(columnMap).includes('location_raw')
+      ))
+
+    if (rowLooksLikeTemplate && columnMap[0] === undefined) {
+      columnMap[0] = 'supplier_part_number'
+    }
 
     const fields = Object.values(columnMap)
     const hasSupplier = fields.includes('supplier_part_number')
@@ -1595,266 +1723,20 @@ const findHeaderRow = (rows) => {
   return bestMatch ? { rowIndex: bestMatch.rowIndex, columnMap: bestMatch.columnMap } : null
 }
 
-const buildImportItem = (rowData, meta) => {
-  const missing = []
-  const supplierPartNumber = normalizeString(rowData.supplier_part_number)
-  const supplierName = normalizeString(rowData.supplier_name)
-  const unitOfMeasure = normalizeUnitOfMeasure(rowData.unit_of_measure)
-  const rawDescription = normalizeString(rowData.description || rowData.name)
-  let description = rawDescription
-
-  if (!supplierPartNumber) {
-    missing.push('missing part number')
-  }
-
-  if (!description) {
-    if (supplierName) {
-      description = `manufacturer: ${supplierName}`
-    }
-    missing.push('missing description')
-  }
-
-  if (!supplierName) {
-    missing.push('missing manufacturer')
-  }
-
-  const quantity = parseQuantity(rowData.quantity)
-  const rawUnitPrice = normalizeString(rowData.unit_price)
-  const unitPrice = parseUnitPrice(rowData.unit_price)
-  const missingCost = rawUnitPrice === '' || unitPrice <= 0
-  if (missingCost) {
-    missing.push('missing cost/unit')
-  }
-
-  const locationData = resolveLocation(rowData)
-  if (locationData.missing) {
-    missing.push('missing location')
-  }
-
-  const missingInfo = missing.length
-    ? {
-        sheet: meta.sheetName,
-        row: meta.rowNumber,
-        part_number: supplierPartNumber,
-        description: description || rawDescription,
-        manufacturer: supplierName,
-        location: locationData.location_raw || locationData.location_alt,
-        unit_of_measure: unitOfMeasure,
-        quantity: normalizeString(rowData.quantity),
-        unit_price: rawUnitPrice,
-        remarks: missing.join(', ')
-      }
-    : null
-
-  if (missing.length > 0) {
-    return { item: null, missingInfo }
-  }
-
-  return {
-    item: {
-      supplier_part_number: supplierPartNumber,
-      name: description,
-      description,
-      supplier_name: supplierName,
-      unit_of_measure: unitOfMeasure,
-      location_raw: locationData.location_raw,
-      location_aisle: locationData.location_aisle,
-      location_shelf: locationData.location_shelf,
-      location_bay: locationData.location_bay,
-      location_alt: locationData.location_alt,
-      quantity,
-      unit_price: unitPrice,
-      source_sheet: meta.sheetName,
-      source_row: meta.rowNumber
-    },
-    missingInfo
-  }
-}
-
-const resolveLocation = (rowData) => {
-  const locationRaw = normalizeString(rowData.location_raw)
-  const locationAlt = normalizeString(rowData.location_alt)
-
-  if (!locationRaw) {
-    if (locationAlt) {
-      return {
-        location_raw: '',
-        location_aisle: '',
-        location_shelf: '',
-        location_bay: '',
-        location_alt: locationAlt,
-        missing: false
-      }
-    }
-
-    return {
-      location_raw: '',
-      location_aisle: '',
-      location_shelf: '',
-      location_bay: '',
-      location_alt: 'location undefined',
-      missing: true
-    }
-  }
-
-  const dashMatch = locationRaw.match(/^[^\\-\\.]+-[^\\-\\.]+-[^\\-\\.]+$/)
-  if (dashMatch) {
-    const [aisle, shelf, bay] = locationRaw.split('-').map(part => part.trim())
-    return {
-      location_raw: locationRaw,
-      location_aisle: aisle || '',
-      location_shelf: shelf || '',
-      location_bay: bay || '',
-      location_alt: '',
-      missing: false
-    }
-  }
-
-  const dotMatch = locationRaw.match(/^[^\\.]+\\.[^\\.]+\\.[^\\.]+$/)
-  if (dotMatch) {
-    const [aisle, shelf, bay] = locationRaw.split('.').map(part => part.trim())
-    return {
-      location_raw: locationRaw,
-      location_aisle: aisle || '',
-      location_shelf: shelf || '',
-      location_bay: bay || '',
-      location_alt: '',
-      missing: false
-    }
-  }
-
-  return {
-    location_raw: locationRaw,
-    location_aisle: '',
-    location_shelf: '',
-    location_bay: '',
-    location_alt: locationRaw,
-    missing: false
-  }
-}
-
-const parseLocationTokens = (value) => {
-  const text = normalizeString(value)
-  if (!text) return []
-  return text
-    .split('|')
-    .map(part => normalizeString(part))
-    .filter(Boolean)
-}
-
-const collectItemLocations = (item) => {
-  const locations = new Set()
-  const raw = normalizeString(item.location_raw)
-  const alt = normalizeString(item.location_alt)
-
-  parseLocationTokens(raw).forEach(location => locations.add(location))
-  parseLocationTokens(alt).forEach(location => locations.add(location))
-
-  if (!raw && !alt) {
-    parseLocationTokens(formatImportLocation(item)).forEach(location => locations.add(location))
-  }
-
-  return Array.from(locations)
-}
-
-const toMergedLocationText = (locations) => {
-  const merged = Array.from(new Set(locations.map(location => normalizeString(location)).filter(Boolean))).join(' | ')
-  return merged.length > 255 ? merged.slice(0, 255) : merged
-}
-
-const dedupeImportItems = (items) => {
-  const mergedByRowKey = new Map()
-  const supplierUnits = new Map()
-  const duplicates = []
-
-  items.forEach((rawItem) => {
-    if (!rawItem?.supplier_part_number) return
-
-    const supplierPartNumber = normalizeString(rawItem.supplier_part_number)
-    if (!supplierPartNumber) return
-
-    const item = {
-      ...rawItem,
-      supplier_part_number: supplierPartNumber,
-      unit_of_measure: normalizeUnitOfMeasure(rawItem.unit_of_measure),
-      quantity: parseQuantity(rawItem.quantity),
-      location_raw: normalizeString(rawItem.location_raw),
-      location_aisle: normalizeString(rawItem.location_aisle),
-      location_shelf: normalizeString(rawItem.location_shelf),
-      location_bay: normalizeString(rawItem.location_bay),
-      location_alt: normalizeString(rawItem.location_alt)
-    }
-
-    const rowUnit = item.unit_of_measure || 'each'
-    if (!supplierUnits.has(supplierPartNumber)) {
-      supplierUnits.set(supplierPartNumber, new Set())
-    }
-    supplierUnits.get(supplierPartNumber).add(rowUnit)
-
-    const rowLocations = collectItemLocations(item).map(location => normalizeString(location)).filter(Boolean)
-    const locationSignature = rowLocations.length ? rowLocations.slice().sort().join('|') : 'unassigned'
-    const mergeKey = `${supplierPartNumber}::${rowUnit}::${locationSignature}`
-
-    const existing = mergedByRowKey.get(mergeKey)
-    if (!existing) {
-      mergedByRowKey.set(mergeKey, {
-        item: { ...item },
-        locationSet: new Set(rowLocations)
-      })
-      return
-    }
-
-    collectItemLocations(item).forEach(location => existing.locationSet.add(location))
-    existing.item.quantity = parseQuantity(existing.item.quantity) + parseQuantity(item.quantity)
-
-    duplicates.push({
-      ...item,
-      merged_unit_of_measure: rowUnit,
-      remarks: 'duplicate in file (same supplier + unit + location; quantity merged)'
-    })
-  })
-
-  const mergedItems = Array.from(mergedByRowKey.values()).map((entry) => {
-    const mergedItem = { ...entry.item }
-    const locations = Array.from(entry.locationSet).filter(Boolean)
-
-    if (locations.length > 1) {
-      mergedItem.location_raw = ''
-      mergedItem.location_aisle = ''
-      mergedItem.location_shelf = ''
-      mergedItem.location_bay = ''
-      mergedItem.location_alt = toMergedLocationText(locations)
-    } else if (locations.length === 1 && !normalizeString(mergedItem.location_raw) && !normalizeString(mergedItem.location_alt)) {
-      mergedItem.location_alt = locations[0]
-    }
-
-    return mergedItem
-  })
-
-  supplierUnits.forEach((unitSet, supplierPartNumber) => {
-    if (unitSet.size <= 1) return
-    const units = Array.from(unitSet)
-    mergedItems
-      .filter(item => normalizeString(item.supplier_part_number) === supplierPartNumber)
-      .forEach((mergedItem) => {
-        duplicates.push({
-          source_sheet: mergedItem.source_sheet || '',
-          source_row: mergedItem.source_row || '',
-          supplier_part_number: mergedItem.supplier_part_number,
-          name: mergedItem.name || mergedItem.description || '',
-          supplier_name: mergedItem.supplier_name || '',
-          location_raw: mergedItem.location_raw || mergedItem.location_alt || '',
-          unit_of_measure: mergedItem.unit_of_measure || 'each',
-          merged_unit_of_measure: mergedItem.unit_of_measure || 'each',
-          quantity: mergedItem.quantity,
-          unit_price: mergedItem.unit_price,
-          remarks: `unit mismatch across file rows (${units.join(', ')})`
-        })
-      })
-  })
-
-  return { items: mergedItems, duplicates }
-}
+const buildParsedImportRow = (rowData, meta) => ({
+  supplier_part_number: rowData.supplier_part_number ?? '',
+  name: rowData.name ?? '',
+  description: rowData.name ?? '',
+  supplier_name: rowData.supplier_name ?? '',
+  unit_of_measure: rowData.unit_of_measure ?? '',
+  location_raw: rowData.location_raw ?? '',
+  location_alt: rowData.location_alt ?? '',
+  quantity: rowData.quantity ?? '',
+  unit_price: rowData.unit_price ?? '',
+  low_stock_threshold: rowData.low_stock_threshold ?? 5,
+  source_sheet: meta.sheetName,
+  source_row: meta.rowNumber
+})
 
 const isRowEmpty = (rowData) => {
   return Object.values(rowData).every(value => normalizeString(value) === '')

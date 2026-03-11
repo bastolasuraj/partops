@@ -6,6 +6,7 @@ use App\Core\Request;
 use App\Core\Response;
 use App\Core\LdapAuth;
 use App\Core\Logger;
+use App\Core\AuditLogger;
 use App\Models\User;
 
 class AuthController extends BaseController
@@ -73,6 +74,9 @@ class AuthController extends BaseController
                 
                 // Set session expiration
                 $_SESSION['expires_at'] = time() + $ldapConfig['session_lifetime'];
+
+                AuditLogger::clearLogsAccessVerification();
+                AuditLogger::recordUserEvent('login', 'User logged in', 'success');
                 
                 Response::success([
                     'user' => [
@@ -148,6 +152,9 @@ class AuthController extends BaseController
                     
                     // Set session expiration
                     $_SESSION['expires_at'] = time() + $ldapConfig['session_lifetime'];
+
+                    AuditLogger::clearLogsAccessVerification();
+                    AuditLogger::recordUserEvent('login', 'User logged in', 'success');
                     
                     Response::success([
                     'user' => [
@@ -174,6 +181,11 @@ class AuthController extends BaseController
         
         // Both authentication methods failed
         Logger::warning('Login failed - invalid credentials', ['username' => $username]);
+        AuditLogger::recordUserEvent('login_failed', 'Login failed', 'failure', [
+            'username' => $username,
+            'display_name' => $username,
+            'metadata' => ['reason' => 'invalid_credentials'],
+        ]);
         Response::error('Invalid credentials', 401);
     }
     
@@ -187,6 +199,18 @@ class AuthController extends BaseController
         }
         
         $username = $_SESSION['user']['username'] ?? 'unknown';
+        $displayName = $_SESSION['user']['display_name'] ?? $username;
+        $userId = $_SESSION['user']['id'] ?? null;
+        $role = $_SESSION['user']['role'] ?? null;
+        $authType = $_SESSION['user']['auth_type'] ?? null;
+
+        AuditLogger::recordUserEvent('logout', 'User logged out', 'success', [
+            'user_id' => $userId,
+            'username' => $username,
+            'display_name' => $displayName,
+            'user_role' => $role,
+            'auth_type' => $authType,
+        ]);
         
         // Destroy session
         $_SESSION = [];
