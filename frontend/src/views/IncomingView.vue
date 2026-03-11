@@ -37,11 +37,12 @@
               v-model="partSearch"
               @input="onPartInput"
               @focus="showPartDropdown = true"
-              @blur="hidePartDropdown"
+              @blur="handlePartBlur"
               type="text"
               class="form-input"
               :class="{ 
-                'border-green-300 focus:border-green-500 focus:ring-green-500': selectedPart
+                'border-red-300 focus:border-red-500 focus:ring-red-500': partValidationMessage,
+                'border-green-300 focus:border-green-500 focus:ring-green-500': selectedPart && !partValidationMessage
               }"
               placeholder="Type to search parts..."
               required
@@ -133,6 +134,10 @@
                
 
             </div>
+
+            <div v-if="partValidationMessage" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {{ partValidationMessage }}
+            </div>
           </div>
 
           <div class="form-group relative">
@@ -141,11 +146,12 @@
               v-model="vendorSearch"
               @input="onVendorInput"
               @focus="showVendorDropdown = true"
-              @blur="hideVendorDropdown"
+              @blur="handleVendorBlur"
               type="text"
               class="form-input"
               :class="{ 
-                'border-green-300 focus:border-green-500 focus:ring-green-500': selectedVendor
+                'border-red-300 focus:border-red-500 focus:ring-red-500': vendorValidationMessage,
+                'border-green-300 focus:border-green-500 focus:ring-green-500': selectedVendor && !vendorValidationMessage
               }"
               placeholder="Type to search or create vendor..."
             />
@@ -189,6 +195,10 @@
                   </svg>
                 </button>
               </div>
+            </div>
+
+            <div v-if="vendorValidationMessage" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {{ vendorValidationMessage }}
             </div>
           </div>
 
@@ -246,7 +256,7 @@
           </div>
 
           <div class="pt-4 border-t border-gray-100 flex justify-end">
-            <button type="submit" :disabled="processing || !selectedPart" class="btn-primary">
+            <button type="submit" :disabled="processing || !canSubmitIncoming" :class="incomingSubmitButtonClass">
               <span v-if="processing" class="spinner w-4 h-4"></span>
               <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
@@ -268,11 +278,12 @@
               v-model="referenceSearch"
               @input="onReferenceInput"
               @focus="showReferenceDropdown = true"
-              @blur="hideReferenceDropdown"
+              @blur="handleReferenceBlur"
               type="text"
               class="form-input"
               :class="{ 
-                'border-green-300 focus:border-green-500 focus:ring-green-500': selectedReference
+                'border-red-300 focus:border-red-500 focus:ring-red-500': referenceValidationMessage,
+                'border-green-300 focus:border-green-500 focus:ring-green-500': selectedReference && !referenceValidationMessage
               }"
               :placeholder="`Type to search ${form.type === 'wo' ? 'work orders' : form.type === 'unit' ? 'units' : 'technicians'}...`"
             />
@@ -327,6 +338,10 @@
                 </button>
               </div>
             </div>
+
+            <div v-if="referenceValidationMessage" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {{ referenceValidationMessage }}
+            </div>
           </div>
 
           <div v-if="allowUntrackedReturns" class="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
@@ -378,7 +393,10 @@
                 v-for="item in returnableItems" 
                 :key="item.part_id"
                 class="border border-gray-200 rounded-lg p-4 hover:border-blue-300 transition-colors"
-                :class="{ 'bg-blue-50 border-blue-300': item.returnQty > 0 }"
+                :class="{
+                  'bg-blue-50 border-blue-300': item.returnQty > 0 && !item.validationMessage,
+                  'bg-red-50 border-red-300': item.validationMessage
+                }"
               >
                 <div class="flex items-start justify-between gap-4">
                   <div class="flex-1">
@@ -396,13 +414,19 @@
                     <input 
                       type="number" 
                       v-model.number="item.returnQty"
+                      @input="validateReturnableItem(item)"
+                      @blur="validateReturnableItem(item, true)"
                       :max="item.available_to_return"
                       min="0"
                       class="form-input w-24 text-center"
+                      :class="{ 'border-red-300 focus:border-red-500 focus:ring-red-500': item.validationMessage }"
                       placeholder="0"
                     >
                     <span class="text-gray-500 text-sm">qty</span>
                   </div>
+                </div>
+                <div v-if="item.validationMessage" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  {{ item.validationMessage }}
                 </div>
               </div>
             </div>
@@ -414,8 +438,8 @@
               </div>
               <button 
                 @click="processMultipleReturns" 
-                :disabled="processing || selectedItemsCount === 0"
-                class="btn-primary"
+                :disabled="processing || !canProcessSelectedReturns"
+                :class="processReturnsButtonClass"
               >
                 <span v-if="processing" class="spinner w-4 h-4"></span>
                 <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -450,12 +474,12 @@
                       v-model="item.partSearch"
                       @input="onManualPartInput(idx)"
                       @focus="item.showDropdown = true"
-                      @blur="hideManualPartDropdown(idx)"
+                      @blur="handleManualPartBlur(idx)"
                       type="text"
                       class="form-input"
                       :class="{ 
-                        'border-red-300 focus:border-red-500 focus:ring-red-500': item.isDuplicate,
-                        'border-green-300 focus:border-green-500 focus:ring-green-500': item.partId && !item.isDuplicate
+                        'border-red-300 focus:border-red-500 focus:ring-red-500': item.isDuplicate || item.validationMessage,
+                        'border-green-300 focus:border-green-500 focus:ring-green-500': item.partId && !item.isDuplicate && !item.validationMessage
                       }"
                       placeholder="Type to search parts..."
                     />
@@ -478,6 +502,10 @@
                           {{ part.supplier_part_number || 'N/A' }}
                         </div>
                       </button>
+                    </div>
+
+                    <div v-if="item.validationMessage" class="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                      {{ item.validationMessage }}
                     </div>
                   </div>
                   
@@ -510,7 +538,7 @@
               <button 
                 @click="processManualReturns"
                 :disabled="processing || !canProcessManualReturns"
-                class="btn-primary"
+                :class="manualReturnsButtonClass"
               >
                 <span v-if="processing" class="spinner w-4 h-4"></span>
                 <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -626,7 +654,7 @@
                 <label class="form-label">Employee Number</label>
                 <input v-model="newTechForm.emp_id" class="form-input" placeholder="e.g., T-101">
                 <div class="text-xs text-gray-500 mt-1">
-                  Leave blank to auto-assign a temporary unique 10-digit number.
+                  Leave blank to auto-assign a random temporary 10-digit employee number.
                 </div>
               </div>
             </div>
@@ -755,14 +783,16 @@ const loadingItems = ref(false)
 const returnableItems = ref([])
 const selectedReference = ref('')
 const manualReturnMode = ref(false)
-const manualReturnBasket = ref([{
+const createManualReturnItem = () => ({
   partId: '',
   qty: 1,
   partSearch: '',
   showDropdown: false,
   selectedPart: null,
-  isDuplicate: false
-}])
+  isDuplicate: false,
+  validationMessage: ''
+})
+const manualReturnBasket = ref([createManualReturnItem()])
 
 // Part search
 const partSearch = ref('')
@@ -770,16 +800,19 @@ const selectedPart = ref(null)
 const showPartDropdown = ref(false)
 const partLocationOptions = ref([])
 const loadingPartLocations = ref(false)
+const partValidationMessage = ref('')
 
 // Vendor search (for new stock)
 const vendorSearch = ref('')
 const selectedVendor = ref(null)
 const showVendorDropdown = ref(false)
+const vendorValidationMessage = ref('')
 
 // Reference search (for WO/Unit/Tech returns)
 const referenceSearch = ref('')
 const selectedReferenceObj = ref(null)
 const showReferenceDropdown = ref(false)
+const referenceValidationMessage = ref('')
 const showCreateReferenceConfirmation = ref(false)
 const pendingReferenceName = ref('')
 const pendingReferenceType = ref('')
@@ -837,7 +870,21 @@ const normalizeUnitOfMeasure = (value) => {
   return unit || 'each'
 }
 
+const normalizeLookupText = (value) => String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+
 const selectedPartUnit = computed(() => normalizeUnitOfMeasure(selectedPart.value?.unit_of_measure))
+const hasTypedVendorSearch = computed(() => normalizeLookupText(vendorSearch.value) !== '')
+const canSubmitIncoming = computed(() =>
+  !!selectedPart.value &&
+  (!hasTypedVendorSearch.value || !!selectedVendor.value) &&
+  Number(form.value.qty) > 0 &&
+  Number(form.value.price) > 0
+)
+const incomingSubmitButtonClass = computed(() =>
+  canSubmitIncoming.value
+    ? 'btn-primary'
+    : 'btn-danger opacity-70 cursor-not-allowed'
+)
 
 const formatPartDefaultLocation = (part) => {
   if (!part) return ''
@@ -848,6 +895,28 @@ const formatPartDefaultLocation = (part) => {
   const rack = [aisle, shelf, bay].filter(Boolean)
   if (rack.length > 0) return rack.join('-')
   return alt
+}
+
+const buildPartDisplayText = (part) => `${part.fowler_part_number} - ${part.name}`
+
+const clearPartSelectionState = ({ clearSearch = false, clearVendorSelection = false } = {}) => {
+  selectedPart.value = null
+  partLocationOptions.value = []
+  form.value.locationRaw = ''
+  loadingPartLocations.value = false
+  if (clearSearch) {
+    partSearch.value = ''
+  }
+  if (clearVendorSelection) {
+    clearVendor()
+  }
+}
+
+const clearVendorSelectionState = ({ clearSearch = false } = {}) => {
+  selectedVendor.value = null
+  if (clearSearch) {
+    vendorSearch.value = ''
+  }
 }
 
 const loadPartLocations = async (partId) => {
@@ -924,6 +993,7 @@ const manualValidItems = computed(() => {
     item.partId &&
     item.qty > 0 &&
     !item.isDuplicate &&
+    !item.validationMessage &&
     item.selectedPart
   )
 })
@@ -932,6 +1002,24 @@ const canProcessManualReturns = computed(() => {
   if (!selectedReference.value) return false
   return manualValidItems.value.length > 0
 })
+const invalidSelectedReturnItems = computed(() =>
+  returnableItems.value.filter(item => item.returnQty > 0 && !!item.validationMessage)
+)
+const canProcessSelectedReturns = computed(() =>
+  !!selectedReference.value &&
+  selectedItemsCount.value > 0 &&
+  invalidSelectedReturnItems.value.length === 0
+)
+const processReturnsButtonClass = computed(() =>
+  canProcessSelectedReturns.value
+    ? 'btn-primary'
+    : 'btn-danger opacity-70 cursor-not-allowed'
+)
+const manualReturnsButtonClass = computed(() =>
+  canProcessManualReturns.value
+    ? 'btn-primary'
+    : 'btn-danger opacity-70 cursor-not-allowed'
+)
 
 const filteredVendors = computed(() => {
   if (!vendorSearch.value.trim()) {
@@ -1018,6 +1106,43 @@ const referenceTypeLabel = computed(() => {
   return 'Technician'
 })
 
+const buildReferenceValidationMessage = () => {
+  const label = referenceTypeLabel.value
+  const lowerLabel = label.toLowerCase()
+
+  if (hasExactReferenceMatch.value) {
+    return `Select the correct ${lowerLabel} from the list.`
+  }
+
+  return allowUntrackedReturns.value
+    ? `${label} is not registered. Select an existing ${lowerLabel} or create it first.`
+    : `${label} is not registered. Select an existing ${lowerLabel}.`
+}
+
+const getReturnableItemValidationMessage = (item) => {
+  const qty = Number(item?.returnQty || 0)
+  const available = Number(item?.available_to_return || 0)
+
+  if (qty <= 0) {
+    return ''
+  }
+
+  if (qty > available) {
+    return `Return quantity cannot exceed available quantity (${available}).`
+  }
+
+  return ''
+}
+
+const validateReturnableItem = (item, notify = false) => {
+  if (!item) return
+
+  item.validationMessage = getReturnableItemValidationMessage(item)
+  if (notify && item.validationMessage) {
+    showToast('Error', item.validationMessage, 'error')
+  }
+}
+
 // Get display text for selected reference
 const selectedReferenceDisplay = computed(() => {
   if (!selectedReferenceObj.value) return ''
@@ -1075,6 +1200,7 @@ const resetVendorForm = () => {
 
 const changeType = (type) => {
   form.value.type = type
+  referenceValidationMessage.value = ''
   if (type !== 'new') {
     form.value.locationRaw = ''
   } else if (selectedPart.value) {
@@ -1085,14 +1211,7 @@ const changeType = (type) => {
   referenceSearch.value = ''
   returnableItems.value = []
   manualReturnMode.value = false
-  manualReturnBasket.value = [{
-    partId: '',
-    qty: 1,
-    partSearch: '',
-    showDropdown: false,
-    selectedPart: null,
-    isDuplicate: false
-  }]
+  manualReturnBasket.value = [createManualReturnItem()]
 }
 
 const selectAllItems = () => {
@@ -1100,30 +1219,83 @@ const selectAllItems = () => {
     // Deselect all
     returnableItems.value.forEach(item => {
       item.returnQty = 0
+      item.validationMessage = ''
     })
   } else {
     // Select all with max available
     returnableItems.value.forEach(item => {
       item.returnQty = item.available_to_return
+      item.validationMessage = ''
     })
   }
 }
 
 const onPartInput = () => {
-  if (!selectedPart.value) {
-    showPartDropdown.value = true
+  const typed = normalizeLookupText(partSearch.value)
+  partValidationMessage.value = ''
+
+  if (selectedPart.value && typed !== normalizeLookupText(buildPartDisplayText(selectedPart.value))) {
+    clearPartSelectionState()
   }
+
+  showPartDropdown.value = true
 }
 
-const hidePartDropdown = () => {
+const findExactPartMatch = (value) => {
+  const search = normalizeLookupText(value)
+  if (!search) return null
+
+  const exactIdentifierMatch = parts.value.find(part =>
+    [
+      part.fowler_part_number,
+      part.supplier_part_number,
+      buildPartDisplayText(part)
+    ].some(candidate => normalizeLookupText(candidate) === search)
+  )
+
+  if (exactIdentifierMatch) {
+    return exactIdentifierMatch
+  }
+
+  const exactNameMatches = parts.value.filter(part =>
+    normalizeLookupText(part.name) === search
+  )
+
+  return exactNameMatches.length === 1 ? exactNameMatches[0] : null
+}
+
+const handlePartBlur = () => {
   setTimeout(() => {
     showPartDropdown.value = false
+
+    const typed = normalizeLookupText(partSearch.value)
+    if (!typed) {
+      partValidationMessage.value = ''
+      clearPartSelectionState()
+      return
+    }
+
+    if (selectedPart.value) {
+      partValidationMessage.value = ''
+      return
+    }
+
+    const match = findExactPartMatch(partSearch.value)
+    if (match) {
+      selectPart(match)
+      return
+    }
+
+    clearPartSelectionState()
+    partValidationMessage.value = 'Item is not registered in Parts Master.'
+    showToast('Error', partValidationMessage.value, 'error')
   }, 200)
 }
 
 const selectPart = (part) => {
   selectedPart.value = part
-  partSearch.value = `${part.fowler_part_number} - ${part.name}`
+  partSearch.value = buildPartDisplayText(part)
+  partValidationMessage.value = ''
   showPartDropdown.value = false
   form.value.locationRaw = formatPartDefaultLocation(part)
   loadPartLocations(part.id)
@@ -1131,23 +1303,56 @@ const selectPart = (part) => {
 }
 
 const clearPart = () => {
-  selectedPart.value = null
-  partSearch.value = ''
-  partLocationOptions.value = []
-  form.value.locationRaw = ''
-  clearVendor()
+  partValidationMessage.value = ''
+  clearPartSelectionState({ clearSearch: true, clearVendorSelection: true })
 }
 
 const onManualPartInput = (idx) => {
   const item = manualReturnBasket.value[idx]
-  if (!item.selectedPart) {
-    item.showDropdown = true
+  const typed = normalizeLookupText(item.partSearch)
+  item.validationMessage = ''
+
+  if (item.selectedPart && typed !== normalizeLookupText(buildPartDisplayText(item.selectedPart))) {
+    item.partId = ''
+    item.selectedPart = null
+    item.isDuplicate = false
   }
+
+  item.showDropdown = true
 }
 
-const hideManualPartDropdown = (idx) => {
+const handleManualPartBlur = (idx) => {
   setTimeout(() => {
-    manualReturnBasket.value[idx].showDropdown = false
+    const item = manualReturnBasket.value[idx]
+    if (!item) return
+
+    item.showDropdown = false
+
+    const typed = normalizeLookupText(item.partSearch)
+    if (!typed) {
+      item.validationMessage = ''
+      item.partId = ''
+      item.selectedPart = null
+      item.isDuplicate = false
+      return
+    }
+
+    if (item.selectedPart) {
+      item.validationMessage = ''
+      return
+    }
+
+    const match = findExactPartMatch(item.partSearch)
+    if (match) {
+      selectManualPart(idx, match)
+      return
+    }
+
+    item.partId = ''
+    item.selectedPart = null
+    item.isDuplicate = false
+    item.validationMessage = 'Item is not registered in Parts Master.'
+    showToast('Error', item.validationMessage, 'error')
   }, 200)
 }
 
@@ -1155,8 +1360,9 @@ const selectManualPart = (idx, part) => {
   const item = manualReturnBasket.value[idx]
   item.partId = part.id
   item.selectedPart = part
-  item.partSearch = `${part.fowler_part_number} - ${part.name}`
+  item.partSearch = buildPartDisplayText(part)
   item.showDropdown = false
+  item.validationMessage = ''
   item.isDuplicate = isManualPartSelected(part.id, idx)
   
   if (item.isDuplicate) {
@@ -1165,25 +1371,11 @@ const selectManualPart = (idx, part) => {
 }
 
 const clearManualPart = (idx) => {
-  manualReturnBasket.value[idx] = {
-    partId: '',
-    qty: 1,
-    partSearch: '',
-    showDropdown: false,
-    selectedPart: null,
-    isDuplicate: false
-  }
+  manualReturnBasket.value[idx] = createManualReturnItem()
 }
 
 const addManualReturnItem = () => {
-  manualReturnBasket.value.push({
-    partId: '',
-    qty: 1,
-    partSearch: '',
-    showDropdown: false,
-    selectedPart: null,
-    isDuplicate: false
-  })
+  manualReturnBasket.value.push(createManualReturnItem())
 }
 
 const removeManualReturnItem = (idx) => {
@@ -1193,32 +1385,69 @@ const removeManualReturnItem = (idx) => {
 }
 
 const onVendorInput = () => {
-  if (!selectedVendor.value) {
-    showVendorDropdown.value = true
+  const typed = normalizeLookupText(vendorSearch.value)
+  vendorValidationMessage.value = ''
+
+  if (selectedVendor.value && typed !== normalizeLookupText(selectedVendor.value.name)) {
+    clearVendorSelectionState()
   }
+
+  showVendorDropdown.value = true
 }
 
-const hideVendorDropdown = () => {
+const findExactVendorMatch = (value) => {
+  const search = normalizeLookupText(value)
+  if (!search) return null
+
+  return suppliers.value.find(supplier =>
+    normalizeLookupText(supplier.name) === search
+  ) || null
+}
+
+const handleVendorBlur = () => {
   setTimeout(() => {
     showVendorDropdown.value = false
+
+    const typed = normalizeLookupText(vendorSearch.value)
+    if (!typed) {
+      vendorValidationMessage.value = ''
+      clearVendorSelectionState()
+      return
+    }
+
+    if (selectedVendor.value) {
+      vendorValidationMessage.value = ''
+      return
+    }
+
+    const match = findExactVendorMatch(vendorSearch.value)
+    if (match) {
+      selectVendor(match)
+      return
+    }
+
+    clearVendorSelectionState()
+    vendorValidationMessage.value = 'Vendor is not registered. Select an existing vendor or create it first.'
+    showToast('Error', vendorValidationMessage.value, 'error')
   }, 200)
 }
 
 const selectVendor = (vendor) => {
   selectedVendor.value = vendor
   vendorSearch.value = vendor.name
+  vendorValidationMessage.value = ''
   showVendorDropdown.value = false
 }
 
 const clearVendor = () => {
-  selectedVendor.value = null
-  vendorSearch.value = ''
+  vendorValidationMessage.value = ''
+  clearVendorSelectionState({ clearSearch: true })
 }
 
 const syncVendorToPart = (part) => {
   if (!part?.supplier_name && !part?.supplier_id) return
   
-  const matchById = suppliers.value.find(supplier => supplier.id === part.supplier_id)
+  const matchById = suppliers.value.find(supplier => String(supplier.id) === String(part.supplier_id))
   const matchByName = suppliers.value.find(supplier =>
     supplier.name?.toLowerCase().trim() === (part.supplier_name || '').toLowerCase().trim()
   )
@@ -1229,24 +1458,88 @@ const syncVendorToPart = (part) => {
   } else if (part.supplier_name) {
     selectedVendor.value = null
     vendorSearch.value = part.supplier_name
+    vendorValidationMessage.value = 'Vendor is not registered. Select an existing vendor or create it first.'
+  }
+}
+
+const clearReferenceSelectionState = ({ clearSearch = false, clearItems = true } = {}) => {
+  selectedReferenceObj.value = null
+  selectedReference.value = ''
+  if (clearSearch) {
+    referenceSearch.value = ''
+  }
+  if (clearItems) {
+    returnableItems.value = []
   }
 }
 
 const onReferenceInput = () => {
-  if (!selectedReferenceObj.value) {
-    showReferenceDropdown.value = true
+  const typed = normalizeLookupText(referenceSearch.value)
+  referenceValidationMessage.value = ''
+
+  if (selectedReferenceObj.value) {
+    const selectedLabel = form.value.type === 'wo'
+      ? selectedReferenceObj.value.wo_number
+      : selectedReferenceObj.value.name
+
+    if (typed !== normalizeLookupText(selectedLabel)) {
+      clearReferenceSelectionState()
+    }
   }
+
+  showReferenceDropdown.value = true
 }
 
-const hideReferenceDropdown = () => {
+const findExactReferenceMatch = (value) => {
+  const search = normalizeLookupText(value)
+  if (!search) return null
+
+  if (form.value.type === 'wo') {
+    return workOrders.value.find(wo =>
+      normalizeLookupText(wo.wo_number) === search
+    ) || null
+  }
+
+  const list = form.value.type === 'unit' ? units.value : technicians.value
+  const matches = list.filter(item =>
+    normalizeLookupText(item.name) === search
+  )
+
+  return matches.length === 1 ? matches[0] : null
+}
+
+const handleReferenceBlur = () => {
   setTimeout(() => {
     showReferenceDropdown.value = false
+
+    const typed = normalizeLookupText(referenceSearch.value)
+    if (!typed) {
+      referenceValidationMessage.value = ''
+      clearReferenceSelectionState()
+      return
+    }
+
+    if (selectedReferenceObj.value) {
+      referenceValidationMessage.value = ''
+      return
+    }
+
+    const match = findExactReferenceMatch(referenceSearch.value)
+    if (match) {
+      selectReference(match)
+      return
+    }
+
+    clearReferenceSelectionState()
+    referenceValidationMessage.value = buildReferenceValidationMessage()
+    showToast('Error', referenceValidationMessage.value, 'error')
   }, 200)
 }
 
 const selectReference = (ref) => {
   selectedReferenceObj.value = ref
   selectedReference.value = ref.id
+  referenceValidationMessage.value = ''
   
   if (form.value.type === 'wo') {
     referenceSearch.value = ref.wo_number
@@ -1259,10 +1552,8 @@ const selectReference = (ref) => {
 }
 
 const clearReference = () => {
-  selectedReferenceObj.value = null
-  selectedReference.value = ''
-  referenceSearch.value = ''
-  returnableItems.value = []
+  referenceValidationMessage.value = ''
+  clearReferenceSelectionState({ clearSearch: true })
 }
 
 const promptCreateReference = () => {
@@ -1453,7 +1744,8 @@ const loadReturnableItems = async () => {
     // Add returnQty property to each item
     returnableItems.value = (response.data || []).map(item => ({
       ...item,
-      returnQty: 0
+      returnQty: 0,
+      validationMessage: ''
     }))
   } catch (error) {
     showToast('Error', 'Failed to load returnable items', 'error')
@@ -1465,7 +1757,12 @@ const loadReturnableItems = async () => {
 
 const processIncoming = async () => {
   if (!selectedPart.value) {
-    showToast('Error', 'Please select a part', 'error')
+    showToast('Error', partValidationMessage.value || 'Please select a registered part from Parts Master', 'error')
+    return
+  }
+
+  if (hasTypedVendorSearch.value && !selectedVendor.value) {
+    showToast('Error', vendorValidationMessage.value || 'Vendor is not registered. Select an existing vendor or create it first.', 'error')
     return
   }
   
@@ -1522,6 +1819,11 @@ const processIncoming = async () => {
 }
 
 const processMultipleReturns = async () => {
+  if (!selectedReference.value) {
+    showToast('Error', referenceValidationMessage.value || `Please select a valid ${referenceTypeLabel.value.toLowerCase()}`, 'error')
+    return
+  }
+
   const itemsToReturn = returnableItems.value.filter(item => item.returnQty > 0)
   
   if (itemsToReturn.length === 0) {
@@ -1587,7 +1889,7 @@ const processMultipleReturns = async () => {
 
 const processManualReturns = async () => {
   if (!selectedReference.value) {
-    showToast('Error', 'Please select a reference first', 'error')
+    showToast('Error', referenceValidationMessage.value || `Please select a valid ${referenceTypeLabel.value.toLowerCase()}`, 'error')
     return
   }
   
@@ -1624,14 +1926,7 @@ const processManualReturns = async () => {
     
     if (successCount > 0) {
       showToast('Success', `${successCount} item(s) returned successfully`)
-      manualReturnBasket.value = [{
-        partId: '',
-        qty: 1,
-        partSearch: '',
-        showDropdown: false,
-        selectedPart: null,
-        isDuplicate: false
-      }]
+      manualReturnBasket.value = [createManualReturnItem()]
       
       const partsRes = await partsApi.getAll()
       parts.value = partsRes.data || []

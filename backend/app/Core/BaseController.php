@@ -18,6 +18,17 @@ abstract class BaseController
         foreach ($rules as $field => $ruleString) {
             $fieldRules = explode('|', $ruleString);
             $value = $data[$field] ?? null;
+
+            if (is_string($value)) {
+                $value = trim($value);
+                $data[$field] = $value;
+            }
+
+            $isOptionalBlank = $value === '';
+            if ($isOptionalBlank && !in_array('required', $fieldRules, true)) {
+                $value = null;
+                $data[$field] = null;
+            }
             
             foreach ($fieldRules as $rule) {
                 $ruleParts = explode(':', $rule);

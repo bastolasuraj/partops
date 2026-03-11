@@ -690,7 +690,7 @@ const formatTime = (dateString) => {
 const formatType = (type, referenceType) => {
   if (type === 'outgoing') {
     if (referenceType === 'supplier' || referenceType === 'vendor') {
-      return 'Return to supplier'
+      return 'Return to vendor'
     }
     return 'Checkout'
   }

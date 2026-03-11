@@ -514,7 +514,7 @@ class Part extends BaseModel
     {
         $stock = $this->getStock($id);
         if ($stock > 0) {
-            throw new \Exception("Cannot delete part with existing stock. Current stock: {$stock}");
+            throw new \Exception("Cannot archive part with existing stock. Current stock: {$stock}");
         }
 
         $now = new DateTime();

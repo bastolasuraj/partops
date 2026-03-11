@@ -38,9 +38,13 @@
               v-model="workOrderSearch"
               @input="onWorkOrderInput"
               @focus="showWorkOrderDropdown = true"
-              @blur="hideWorkOrderDropdown"
+              @blur="handleWorkOrderBlur"
               type="text"
               class="form-input"
+              :class="{ 
+                'border-red-300 focus:border-red-500 focus:ring-red-500': workOrderValidationMessage,
+                'border-green-300 focus:border-green-500 focus:ring-green-500': form.refId && !workOrderValidationMessage
+              }"
               placeholder="Type to search or create new work order..."
             />
             
@@ -57,6 +61,12 @@
               >
                 <div class="font-medium text-gray-900">{{ wo.wo_number }}</div>
                 <div class="text-xs text-gray-500">Items: {{ wo.item_count }}</div>
+              </button>
+            </div>
+
+            <div v-if="allowUntrackedReturns && showCreateWorkOrderAction" class="mt-2 text-sm text-gray-600">
+              <button type="button" class="text-blue-600 hover:text-blue-700 font-medium" @click="promptCreateWorkOrder">
+                Create new Work Order "{{ workOrderSearchTerm }}"
               </button>
             </div>
             
@@ -78,6 +88,10 @@
                 </button>
               </div>
             </div>
+
+            <div v-if="workOrderValidationMessage" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {{ workOrderValidationMessage }}
+            </div>
           </div>
           
           <!-- Unit/Tech Autocomplete -->
@@ -89,11 +103,12 @@
               v-model="referenceSearch"
               @input="onReferenceInput"
               @focus="showReferenceDropdown = true"
-              @blur="hideReferenceDropdown"
+              @blur="handleReferenceBlur"
               type="text"
               class="form-input"
               :class="{ 
-                'border-green-300 focus:border-green-500 focus:ring-green-500': form.refId
+                'border-red-300 focus:border-red-500 focus:ring-red-500': referenceValidationMessage,
+                'border-green-300 focus:border-green-500 focus:ring-green-500': form.refId && !referenceValidationMessage
               }"
               :placeholder="`Type to search ${form.dest === 'unit' ? 'units' : 'technicians'}...`"
             />
@@ -111,6 +126,12 @@
                 class="w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-b-0"
               >
                 <div class="font-medium text-gray-900">{{ ref.name }}</div>
+              </button>
+            </div>
+
+            <div v-if="allowUntrackedReturns && showCreateReferenceAction" class="mt-2 text-sm text-gray-600">
+              <button type="button" class="text-blue-600 hover:text-blue-700 font-medium" @click="promptCreateReference">
+                Create new {{ destLabel }} "{{ referenceSearchTerm }}"
               </button>
             </div>
             
@@ -131,6 +152,10 @@
                   </svg>
                 </button>
               </div>
+            </div>
+
+            <div v-if="referenceValidationMessage" class="mt-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {{ referenceValidationMessage }}
             </div>
           </div>
 
@@ -155,12 +180,12 @@
                     v-model="item.partSearch"
                     @input="onPartInput(idx)"
                     @focus="item.showDropdown = true"
-                    @blur="hidePartDropdown(idx)"
+                    @blur="handlePartBlur(idx)"
                     type="text"
                     class="form-input"
                     :class="{ 
-                      'border-red-300 focus:border-red-500 focus:ring-red-500': item.isDuplicate || item.outOfStock,
-                      'border-green-300 focus:border-green-500 focus:ring-green-500': item.partId && !item.isDuplicate && !item.outOfStock
+                      'border-red-300 focus:border-red-500 focus:ring-red-500': item.isDuplicate || item.outOfStock || item.validationMessage,
+                      'border-green-300 focus:border-green-500 focus:ring-green-500': item.partId && !item.isDuplicate && !item.outOfStock && !item.validationMessage
                     }"
                     placeholder="Type to search parts..."
                   />
@@ -238,6 +263,14 @@
                     </svg>
                     This part is out of stock
                   </p>
+                  <p v-else-if="requiresExplicitLocationSelection(item)" class="text-xs text-orange-600 mt-1 flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+                      <line x1="12" y1="9" x2="12" y2="13"></line>
+                      <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                    </svg>
+                    Select location to check out from.
+                  </p>
                   <p v-else-if="item.partId && item.selectedPart && getItemAvailableStock(item) < item.qty" class="text-xs text-orange-600 mt-1 flex items-center gap-1">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
@@ -246,23 +279,35 @@
                     </svg>
                     Insufficient stock: only {{ getItemAvailableStock(item) }} available
                   </p>
+                  <p v-else-if="item.validationMessage" class="text-xs text-red-600 mt-1 flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="12" y1="8" x2="12" y2="12"></line>
+                      <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    {{ item.validationMessage }}
+                  </p>
                 </div>
-                <div class="w-full md:w-32">
-                  <label class="text-xs text-gray-500 font-medium mb-1 block">Qty</label>
-                  <input type="number" v-model="item.qty" class="form-input" min="1" @input="validateQuantity(idx)">
-                  <div v-if="item.selectedPart" class="text-xs text-gray-500 mt-1">
-                    {{ normalizeUnitOfMeasure(item.selectedPart.unit_of_measure) }}
+                <div class="w-full md:w-auto md:min-w-[24rem] grid grid-cols-1 md:grid-cols-[7.5rem_15rem] gap-3 items-start">
+                  <div class="w-full">
+                    <label class="text-xs text-gray-500 font-medium mb-1 block">Qty</label>
+                    <input type="number" v-model="item.qty" class="form-input text-center" min="1" @input="validateQuantity(idx)">
+                    <div v-if="item.selectedPart" class="text-xs text-gray-500 mt-1">
+                      {{ normalizeUnitOfMeasure(item.selectedPart.unit_of_measure) }}
+                    </div>
                   </div>
-                </div>
-                <div class="w-full md:w-56" v-if="item.selectedPart">
-                  <label class="text-xs text-gray-500 font-medium mb-1 block">From Location</label>
-                  <select v-model="item.locationKey" class="form-input" @change="validateQuantity(idx)">
-                    <option value="">Auto (any location)</option>
-                    <option v-for="loc in item.locationOptions" :key="loc.location_key" :value="loc.location_key">
-                      {{ loc.location_display }} ({{ loc.quantity }})
-                    </option>
-                  </select>
-                  <div v-if="item.locationLoading" class="text-xs text-gray-500 mt-1">Loading locations...</div>
+                  <div v-if="item.selectedPart" class="w-full">
+                    <label class="text-xs text-gray-500 font-medium mb-1 block">From Location</label>
+                    <select v-model="item.locationKey" class="form-input" @change="validateQuantity(idx)">
+                      <option value="" :disabled="item.locationOptions.length > 1">
+                        {{ item.locationOptions.length > 1 ? 'Select one location' : 'Use available location' }}
+                      </option>
+                      <option v-for="loc in item.locationOptions" :key="loc.location_key" :value="loc.location_key">
+                        {{ loc.location_display }} ({{ loc.quantity }})
+                      </option>
+                    </select>
+                    <div v-if="item.locationLoading" class="text-xs text-gray-500 mt-1">Loading locations...</div>
+                  </div>
                 </div>
                 <button 
                   @click="removeFromBasket(idx)" 
@@ -298,7 +343,7 @@
           </div>
 
           <div class="flex justify-end pt-2">
-            <button @click="processCheckout" :disabled="processing || !canCheckout" class="btn-primary w-full md:w-auto justify-center">
+            <button @click="processCheckout" :disabled="processing || !canCheckout" :class="checkoutButtonClass">
               <span v-if="processing" class="spinner w-4 h-4"></span>
               <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="20 6 9 17 4 12"></polyline>
@@ -441,7 +486,7 @@
                 <label class="form-label">Employee Number</label>
                 <input v-model="newTechForm.emp_id" class="form-input" placeholder="e.g., T-101">
                 <div class="text-xs text-gray-500 mt-1">
-                  Leave blank to auto-assign a temporary unique 10-digit number.
+                  Leave blank to auto-assign a random temporary 10-digit employee number.
                 </div>
               </div>
             </div>
@@ -492,12 +537,14 @@ const resetDestination = () => {
   form.value.refId = ''
   workOrderSearch.value = ''
   selectedWorkOrder.value = null
+  workOrderValidationMessage.value = ''
   showWorkOrderDropdown.value = false
   showCreateConfirmation.value = false
   pendingWorkOrderNumber.value = ''
 
   referenceSearch.value = ''
   selectedReference.value = null
+  referenceValidationMessage.value = ''
   showReferenceDropdown.value = false
   showCreateReferenceConfirmation.value = false
   pendingReferenceName.value = ''
@@ -519,6 +566,7 @@ const createBasketItem = () => ({
   qty: 1,
   isDuplicate: false,
   outOfStock: false,
+  validationMessage: '',
   partSearch: '',
   showDropdown: false,
   selectedPart: null,
@@ -533,6 +581,7 @@ const basket = ref([createBasketItem()])
 const workOrderSearch = ref('')
 const selectedWorkOrder = ref(null)
 const showWorkOrderDropdown = ref(false)
+const workOrderValidationMessage = ref('')
 const showCreateConfirmation = ref(false)
 const pendingWorkOrderNumber = ref('')
 
@@ -540,6 +589,7 @@ const pendingWorkOrderNumber = ref('')
 const referenceSearch = ref('')
 const selectedReference = ref(null)
 const showReferenceDropdown = ref(false)
+const referenceValidationMessage = ref('')
 const showCreateReferenceConfirmation = ref(false)
 const pendingReferenceName = ref('')
 const pendingReferenceType = ref('')
@@ -568,6 +618,9 @@ const normalizeUnitOfMeasure = (value) => {
   const unit = String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
   return unit || 'each'
 }
+
+const normalizeLookupText = (value) => String(value ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+const buildPartDisplayText = (part) => `${part.fowler_part_number} - ${part.name}`
 
 // Filter work orders based on search
 const filteredWorkOrders = computed(() => {
@@ -601,6 +654,29 @@ const filteredReferences = computed(() => {
   )
 })
 
+const workOrderSearchTerm = computed(() => workOrderSearch.value.trim())
+const hasExactWorkOrderMatch = computed(() => {
+  if (!workOrderSearchTerm.value) return false
+  return workOrders.value.some(wo =>
+    wo.wo_number?.toLowerCase().trim() === workOrderSearchTerm.value.toLowerCase()
+  )
+})
+const showCreateWorkOrderAction = computed(() =>
+  workOrderSearchTerm.value && !selectedWorkOrder.value && !hasExactWorkOrderMatch.value
+)
+
+const referenceSearchTerm = computed(() => referenceSearch.value.trim())
+const hasExactReferenceMatch = computed(() => {
+  if (!referenceSearchTerm.value) return false
+  const list = form.value.dest === 'unit' ? units.value : technicians.value
+  return list.some(item =>
+    item.name?.toLowerCase().trim() === referenceSearchTerm.value.toLowerCase()
+  )
+})
+const showCreateReferenceAction = computed(() =>
+  referenceSearchTerm.value && !selectedReference.value && !hasExactReferenceMatch.value
+)
+
 const resetNewUnitForm = () => {
   newUnitForm.value = {
     name: '',
@@ -623,6 +699,44 @@ const findReferenceByName = (name, type) => {
   const search = name.toLowerCase().trim()
   const list = type === 'unit' ? units.value : technicians.value
   return list.find(item => item.name?.toLowerCase().trim() === search) || null
+}
+
+const buildWorkOrderValidationMessage = () => (
+  allowUntrackedReturns.value
+    ? 'Work Order is not registered. Select an existing work order or create it first.'
+    : 'Work Order is not registered. Select an existing work order.'
+)
+
+const buildReferenceValidationMessage = () => {
+  const label = form.value.dest === 'unit' ? 'Unit' : 'Technician'
+  const lowerLabel = label.toLowerCase()
+
+  return allowUntrackedReturns.value
+    ? `${label} is not registered. Select an existing ${lowerLabel} or create it first.`
+    : `${label} is not registered. Select an existing ${lowerLabel}.`
+}
+
+const findExactPartMatch = (value) => {
+  const search = normalizeLookupText(value)
+  if (!search) return null
+
+  const exactIdentifierMatch = parts.value.find(part =>
+    [
+      part.fowler_part_number,
+      part.supplier_part_number,
+      buildPartDisplayText(part)
+    ].some(candidate => normalizeLookupText(candidate) === search)
+  )
+
+  if (exactIdentifierMatch) {
+    return exactIdentifierMatch
+  }
+
+  const exactNameMatches = parts.value.filter(part =>
+    normalizeLookupText(part.name) === search
+  )
+
+  return exactNameMatches.length === 1 ? exactNameMatches[0] : null
 }
 
 // Get parts with stock > 0
@@ -671,10 +785,16 @@ const getFilteredPartsForItem = (currentIndex) => {
 
 const getItemAvailableStock = (item) => {
   if (!item?.selectedPart) return 0
-  if (!item.locationKey) return Number(item.selectedPart.stock || 0)
+  if (!item.locationKey) {
+    return requiresExplicitLocationSelection(item) ? 0 : Number(item.selectedPart.stock || 0)
+  }
 
   const selectedLocation = (item.locationOptions || []).find(loc => loc.location_key === item.locationKey)
   return Number(selectedLocation?.quantity || 0)
+}
+
+const requiresExplicitLocationSelection = (item) => {
+  return Array.isArray(item?.locationOptions) && item.locationOptions.length > 1 && !item.locationKey
 }
 
 const loadPartLocations = async (idx, partId) => {
@@ -703,7 +823,7 @@ const loadPartLocations = async (idx, partId) => {
       item.locationKey = item.locationOptions[0].location_key
     }
   } catch (error) {
-    showToast('Warning', 'Could not load part locations, using auto allocation', 'warning')
+    showToast('Warning', 'Could not load part locations. Select the exact location before checkout if multiple locations exist.', 'warning')
   } finally {
     item.locationLoading = false
   }
@@ -720,10 +840,7 @@ const hasAvailableParts = computed(() => {
 
 // Check if checkout is possible
 const canCheckout = computed(() => {
-  // A destination is considered valid if a refId is set, or if the user is typing a new WO number.
-  const hasDestination = form.value.refId || 
-    (allowUntrackedReturns.value && form.value.dest === 'wo' && workOrderSearch.value.trim() !== '') ||
-    (allowUntrackedReturns.value && (form.value.dest === 'unit' || form.value.dest === 'tech') && referenceSearch.value.trim() !== '');
+  const hasDestination = !!form.value.refId
   if (!hasDestination) return false;
   
   const validItems = basket.value.filter(item => 
@@ -731,12 +848,20 @@ const canCheckout = computed(() => {
     item.qty > 0 && 
     !item.isDuplicate && 
     !item.outOfStock &&
+    !item.validationMessage &&
+    !requiresExplicitLocationSelection(item) &&
     item.selectedPart &&
     getItemAvailableStock(item) >= item.qty
   );
   
   return validItems.length > 0;
 });
+
+const checkoutButtonClass = computed(() =>
+  canCheckout.value
+    ? 'btn-primary w-full md:w-auto justify-center'
+    : 'btn-danger opacity-70 cursor-not-allowed w-full md:w-auto justify-center'
+)
 
 const fetchData = async () => {
   try {
@@ -773,14 +898,57 @@ const fetchData = async () => {
 
 const onPartInput = (idx) => {
   const item = basket.value[idx]
-  if (!item.selectedPart) {
-    item.showDropdown = true
+  const typed = normalizeLookupText(item.partSearch)
+  item.validationMessage = ''
+
+  if (item.selectedPart && typed !== normalizeLookupText(buildPartDisplayText(item.selectedPart))) {
+    basket.value[idx] = {
+      ...createBasketItem(),
+      qty: item.qty
+    }
+    basket.value[idx].partSearch = item.partSearch
+    basket.value[idx].showDropdown = true
+    return
   }
+
+  item.showDropdown = true
 }
 
-const hidePartDropdown = (idx) => {
+const handlePartBlur = (idx) => {
   setTimeout(() => {
-    basket.value[idx].showDropdown = false
+    const item = basket.value[idx]
+    if (!item) return
+
+    item.showDropdown = false
+
+    const typed = normalizeLookupText(item.partSearch)
+    if (!typed) {
+      basket.value[idx] = {
+        ...createBasketItem(),
+        qty: item.qty
+      }
+      return
+    }
+
+    if (item.selectedPart) {
+      item.validationMessage = ''
+      return
+    }
+
+    const match = findExactPartMatch(item.partSearch)
+    if (match) {
+      selectPart(idx, match)
+      return
+    }
+
+    item.validationMessage = 'Item is not registered in Parts Master.'
+    item.partId = ''
+    item.selectedPart = null
+    item.isDuplicate = false
+    item.outOfStock = false
+    item.locationKey = ''
+    item.locationOptions = []
+    showToast('Error', item.validationMessage, 'error')
   }, 200)
 }
 
@@ -788,8 +956,9 @@ const selectPart = (idx, part) => {
   const item = basket.value[idx]
   item.partId = part.id
   item.selectedPart = part
-  item.partSearch = `${part.fowler_part_number} - ${part.name}`
+  item.partSearch = buildPartDisplayText(part)
   item.showDropdown = false
+  item.validationMessage = ''
   item.outOfStock = (part.stock || 0) === 0
   item.isDuplicate = isPartSelected(part.id, idx)
   item.locationKey = ''
@@ -809,6 +978,9 @@ const clearPart = (idx) => {
 
 const validateQuantity = (idx) => {
   const item = basket.value[idx]
+  if (requiresExplicitLocationSelection(item)) {
+    return
+  }
   const available = getItemAvailableStock(item)
   if (item.selectedPart && item.qty > available) {
     showToast('Warning', `Only ${available} units available`, 'warning')
@@ -866,7 +1038,10 @@ const processCheckout = async () => {
   }
   
   if (!form.value.refId) {
-    showToast('Error', 'Please select a destination', 'error');
+    const message = form.value.dest === 'wo'
+      ? (workOrderValidationMessage.value || 'Please select a valid work order')
+      : (referenceValidationMessage.value || 'Please select a valid destination')
+    showToast('Error', message, 'error');
     return;
   }
   
@@ -875,6 +1050,7 @@ const processCheckout = async () => {
     item.qty > 0 && 
     !item.isDuplicate && 
     !item.outOfStock &&
+    !requiresExplicitLocationSelection(item) &&
     item.selectedPart &&
     getItemAvailableStock(item) >= item.qty
   );
@@ -927,52 +1103,114 @@ const processCheckout = async () => {
 
 // Work Order Autocomplete Functions
 const onWorkOrderInput = () => {
-  if (!selectedWorkOrder.value) {
-    showWorkOrderDropdown.value = true
+  const typed = normalizeLookupText(workOrderSearch.value)
+  workOrderValidationMessage.value = ''
+
+  if (selectedWorkOrder.value && typed !== normalizeLookupText(selectedWorkOrder.value.wo_number)) {
+    clearWorkOrder(false)
   }
+
+  showWorkOrderDropdown.value = true
 }
 
-const hideWorkOrderDropdown = () => {
+const handleWorkOrderBlur = () => {
   setTimeout(() => {
     showWorkOrderDropdown.value = false
+
+    const typed = normalizeLookupText(workOrderSearch.value)
+    if (!typed) {
+      workOrderValidationMessage.value = ''
+      clearWorkOrder()
+      return
+    }
+
+    if (selectedWorkOrder.value) {
+      workOrderValidationMessage.value = ''
+      return
+    }
+
+    const exactMatch = workOrders.value.find(wo =>
+      normalizeLookupText(wo.wo_number) === typed
+    )
+    if (exactMatch) {
+      selectWorkOrder(exactMatch)
+      return
+    }
+
+    workOrderValidationMessage.value = buildWorkOrderValidationMessage()
+    showToast('Error', workOrderValidationMessage.value, 'error')
   }, 200)
 }
 
 const selectWorkOrder = (wo) => {
   selectedWorkOrder.value = wo
   workOrderSearch.value = wo.wo_number
+  workOrderValidationMessage.value = ''
   form.value.refId = wo.id
   showWorkOrderDropdown.value = false
 }
 
-const clearWorkOrder = () => {
+const clearWorkOrder = (clearSearch = true) => {
   selectedWorkOrder.value = null
-  workOrderSearch.value = ''
+  workOrderValidationMessage.value = ''
+  if (clearSearch) {
+    workOrderSearch.value = ''
+  }
   form.value.refId = ''
 }
 
 const onReferenceInput = () => {
-  if (!selectedReference.value) {
-    showReferenceDropdown.value = true
+  const typed = normalizeLookupText(referenceSearch.value)
+  referenceValidationMessage.value = ''
+
+  if (selectedReference.value && typed !== normalizeLookupText(selectedReference.value.name)) {
+    clearReference(false)
   }
+
+  showReferenceDropdown.value = true
 }
 
-const hideReferenceDropdown = () => {
+const handleReferenceBlur = () => {
   setTimeout(() => {
     showReferenceDropdown.value = false
+
+    const typed = normalizeLookupText(referenceSearch.value)
+    if (!typed) {
+      referenceValidationMessage.value = ''
+      clearReference()
+      return
+    }
+
+    if (selectedReference.value) {
+      referenceValidationMessage.value = ''
+      return
+    }
+
+    const exactMatch = findReferenceByName(referenceSearch.value, form.value.dest)
+    if (exactMatch) {
+      selectReference(exactMatch)
+      return
+    }
+
+    referenceValidationMessage.value = buildReferenceValidationMessage()
+    showToast('Error', referenceValidationMessage.value, 'error')
   }, 200)
 }
 
 const selectReference = (ref) => {
   selectedReference.value = ref
   referenceSearch.value = ref.name
+  referenceValidationMessage.value = ''
   form.value.refId = ref.id
   showReferenceDropdown.value = false
 }
 
-const clearReference = () => {
+const clearReference = (clearSearch = true) => {
   selectedReference.value = null
-  referenceSearch.value = ''
+  referenceValidationMessage.value = ''
+  if (clearSearch) {
+    referenceSearch.value = ''
+  }
   form.value.refId = ''
 }
 
@@ -980,6 +1218,19 @@ const formatDate = (dateString) => {
   if (!dateString) return 'N/A'
   const date = new Date(dateString)
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+const promptCreateWorkOrder = () => {
+  pendingWorkOrderNumber.value = workOrderSearchTerm.value
+  workOrderValidationMessage.value = ''
+  showCreateConfirmation.value = true
+}
+
+const promptCreateReference = () => {
+  pendingReferenceName.value = referenceSearchTerm.value
+  pendingReferenceType.value = form.value.dest
+  referenceValidationMessage.value = ''
+  showCreateReferenceConfirmation.value = true
 }
 
 // Handle when user presses Enter or clicks checkout with non-existent work order

@@ -133,7 +133,7 @@ class PartController extends BaseController
         
         try {
             $this->part->delete($id);
-            Response::success(null, 'Part deleted successfully');
+            Response::success(null, 'Part archived successfully');
         } catch (\Exception $e) {
             Response::error($e->getMessage(), 400); // Bad request for trying to delete part with stock
         }

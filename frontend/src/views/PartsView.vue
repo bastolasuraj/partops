@@ -2069,14 +2069,14 @@ const savePart = async () => {
 }
 
 const deletePart = async (part) => {
-  if (!confirm(`Delete part ${part.name} (${part.supplier_part_number})? This will only work if stock is 0.`)) return
+  if (!confirm(`Archive part ${part.name} (${part.supplier_part_number})? This will only work if stock is 0.`)) return
   
   try {
     await partsApi.delete(part.id)
-    showToast('Success', 'Part deleted successfully')
+    showToast('Success', 'Part archived successfully')
     fetchParts()
   } catch (error) {
-    showToast('Error', error.response?.data?.message || 'Failed to delete part', 'error')
+    showToast('Error', error.response?.data?.message || 'Failed to archive part', 'error')
   }
 }
 

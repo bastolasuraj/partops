@@ -5,7 +5,7 @@
       <div class="flex items-center justify-between mb-4">
         <div>
           <h1 class="text-3xl font-bold text-gray-900">Vendor Returns</h1>
-          <p class="text-gray-600">Process supplier returns</p>
+          <p class="text-gray-600">Process return to vendor</p>
         </div>
       </div>
     </div>

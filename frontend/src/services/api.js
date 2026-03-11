@@ -49,6 +49,21 @@ const api = axios.create({
 
 let authRedirecting = false
 
+const getValidationMessage = (payload) => {
+  const errors = payload?.errors
+  if (!errors || typeof errors !== 'object') {
+    return null
+  }
+
+  for (const value of Object.values(errors)) {
+    if (Array.isArray(value) && value.length > 0 && value[0]) {
+      return value[0]
+    }
+  }
+
+  return null
+}
+
 // Request interceptor for logging
 api.interceptors.request.use(
   (config) => {
@@ -79,7 +94,13 @@ api.interceptors.response.use(
     return response.data
   },
   (error) => {
-    const message = error.response?.data?.message || error.message || 'An error occurred'
+    const validationMessage = getValidationMessage(error.response?.data)
+    const message = validationMessage || error.response?.data?.message || error.message || 'An error occurred'
+
+    if (error.response?.data && validationMessage) {
+      error.response.data.message = validationMessage
+    }
+
     const details = {
       url: error.config?.url,
       method: error.config?.method,

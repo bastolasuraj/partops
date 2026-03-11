@@ -46,7 +46,7 @@ class TechnicianController extends BaseController
 
         $existing = $this->technician->findBy('emp_id', $employeeId);
         if ($existing) {
-            Response::error('Employee ID already exists', 422);
+            Response::error('Employee Number already exists', 422);
         }
 
         $payload = [
@@ -77,7 +77,7 @@ class TechnicianController extends BaseController
 
         $duplicate = $this->technician->findBy('emp_id', $employeeId);
         if ($duplicate && (int)$duplicate['id'] !== $id) {
-            Response::error('Employee ID already exists', 422);
+            Response::error('Employee Number already exists', 422);
         }
 
         $payload = [

@@ -263,6 +263,12 @@ class InventoryLocationLevel extends BaseModel
             [$partId]
         )->fetchAll();
 
+        if (count($rows) > 1) {
+            throw new \RuntimeException(
+                'This part is stocked in multiple locations. Select one location and use separate transactions for additional locations.'
+            );
+        }
+
         $remaining = $quantity;
         $breakdown = [];
 

@@ -88,7 +88,7 @@
               <label class="form-label">Employee Number</label>
               <input v-model="form.emp_id" class="form-input" placeholder="e.g., T-101">
               <div class="text-xs text-gray-500 mt-1">
-                Leave blank to auto-assign a temporary unique 10-digit number.
+                Leave blank to auto-assign a random temporary 10-digit employee number.
               </div>
             </div>
           </div>
