@@ -48,6 +48,73 @@
       </div>
     </div>
 
+    <div class="card slide-up mt-6">
+      <div class="card-header">
+        <h2 class="text-xl font-semibold text-gray-800">Audit Logs</h2>
+      </div>
+      <div class="p-6 space-y-6">
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div>
+            <label class="form-label">Default entries per page</label>
+            <select v-model.number="auditLogsPageSizeDraft" class="form-input">
+              <option
+                v-for="size in auditLogsPageSizeOptions"
+                :key="size"
+                :value="size"
+              >
+                {{ size }}
+              </option>
+            </select>
+            <p class="mt-2 text-sm text-gray-600">
+              Controls the default page size on <span class="font-mono">/logs</span>.
+            </p>
+          </div>
+
+          <div>
+            <label class="form-label">Active log entries kept in the database</label>
+            <input
+              v-model.number="auditLogsRetentionLimitDraft"
+              type="number"
+              min="1"
+              max="100000"
+              step="1"
+              class="form-input"
+            >
+            <p class="mt-2 text-sm text-gray-600">
+              When the active log table exceeds this count, the oldest rows are moved to
+              <span class="font-mono">{{ auditLogsArchiveFile }}</span>.
+            </p>
+          </div>
+        </div>
+
+        <div class="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700">
+          Archive file: <span class="font-mono">{{ auditLogsArchiveFile }}</span>
+        </div>
+
+        <div class="flex flex-wrap gap-3">
+          <button
+            class="btn-primary"
+            :disabled="savingAuditLogSettings || !auditLogSettingsValid || !auditLogSettingsDirty"
+            @click="saveAuditLogSettings"
+          >
+            {{ savingAuditLogSettings ? 'Saving Log Settings...' : 'Save Log Settings' }}
+          </button>
+
+          <button
+            class="btn-outline"
+            :disabled="savingAuditLogSettings || !auditLogSettingsDirty"
+            @click="resetAuditLogSettings"
+          >
+            Reset
+          </button>
+        </div>
+
+        <div class="text-xs text-gray-500">
+          Lowering the active log limit archives excess oldest rows immediately.
+        </div>
+      </div>
+    </div>
+
     <div class="card slide-up mt-6 border border-red-200">
       <div class="card-header bg-red-50">
         <h2 class="text-xl font-semibold text-red-800">Danger Zone</h2>
@@ -139,12 +206,21 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { settingsApi } from '@/services/api'
 import { useSettings } from '@/composables/useSettings'
 import { useToast } from '@/composables/useToast'
 
-const { allowUntrackedReturns, loadSettings, saveSettings, settingsError } = useSettings()
+const {
+  allowUntrackedReturns,
+  auditLogsPageSize,
+  auditLogsRetentionLimit,
+  auditLogsPageSizeOptions,
+  auditLogsArchiveFile,
+  loadSettings,
+  saveSettings,
+  settingsError
+} = useSettings()
 const { showToast } = useToast()
 const isReady = ref(false)
 const tablesLoading = ref(false)
@@ -157,6 +233,9 @@ const selectiveConfirmText = ref('')
 const wipeConfirmText = ref('')
 const truncatingSelective = ref(false)
 const wipingAll = ref(false)
+const savingAuditLogSettings = ref(false)
+const auditLogsPageSizeDraft = ref(25)
+const auditLogsRetentionLimitDraft = ref(20)
 const fallbackOperationalTables = [
   'vendor_returns',
   'inventory_transactions',
@@ -175,8 +254,21 @@ const fallbackAllTables = [
   'app_settings'
 ]
 
+const auditLogSettingsValid = computed(() => {
+  return auditLogsPageSizeOptions.value.includes(Number(auditLogsPageSizeDraft.value))
+    && Number.isInteger(Number(auditLogsRetentionLimitDraft.value))
+    && Number(auditLogsRetentionLimitDraft.value) >= 1
+    && Number(auditLogsRetentionLimitDraft.value) <= 100000
+})
+
+const auditLogSettingsDirty = computed(() => {
+  return Number(auditLogsPageSizeDraft.value) !== Number(auditLogsPageSize.value)
+    || Number(auditLogsRetentionLimitDraft.value) !== Number(auditLogsRetentionLimit.value)
+})
+
 onMounted(async () => {
   await loadSettings(true)
+  resetAuditLogSettings()
   await loadDatabaseTables()
   isReady.value = true
 })
@@ -184,13 +276,41 @@ onMounted(async () => {
 watch(allowUntrackedReturns, async (value, previous) => {
   if (!isReady.value) return
   try {
-    await saveSettings()
+    await saveSettings({
+      allow_untracked_returns: !!value
+    })
     showToast('Settings saved', 'Changes applied')
   } catch (error) {
     allowUntrackedReturns.value = previous
     showToast('Failed to save settings', error?.response?.data?.message || 'Please try again', 'error')
   }
 })
+
+const resetAuditLogSettings = () => {
+  auditLogsPageSizeDraft.value = Number(auditLogsPageSize.value) || 25
+  auditLogsRetentionLimitDraft.value = Number(auditLogsRetentionLimit.value) || 20
+}
+
+const saveAuditLogSettings = async () => {
+  if (!auditLogSettingsValid.value) {
+    showToast('Invalid log settings', 'Choose a valid page size and retention limit', 'warning')
+    return
+  }
+
+  try {
+    savingAuditLogSettings.value = true
+    await saveSettings({
+      audit_logs_page_size: Number(auditLogsPageSizeDraft.value),
+      audit_logs_retention_limit: Number(auditLogsRetentionLimitDraft.value)
+    })
+    resetAuditLogSettings()
+    showToast('Log settings saved', 'Audit log preferences updated')
+  } catch (error) {
+    showToast('Failed to save log settings', error?.response?.data?.message || 'Please try again', 'error')
+  } finally {
+    savingAuditLogSettings.value = false
+  }
+}
 
 const loadDatabaseTables = async () => {
   tablesLoading.value = true

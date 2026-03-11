@@ -8,6 +8,7 @@ use App\Core\Database;
 class User extends BaseModel
 {
     protected string $table = 'users';
+    private static bool $schemaChecked = false;
     
     protected array $fillable = [
         'username',
@@ -15,6 +16,7 @@ class User extends BaseModel
         'display_name',
         'email',
         'role',
+        'auth_source',
         'is_active',
         'last_login'
     ];
@@ -30,17 +32,30 @@ class User extends BaseModel
     public $display_name;
     public $email;
     public $role;
+    public $auth_source;
     public $is_active;
     public $last_login;
     public $created_at;
     public $updated_at;
+
+    public function __construct()
+    {
+        self::ensureSchema();
+    }
     
     /**
      * Verify password
      */
     public function verifyPassword($password)
     {
-        return password_verify($password, $this->password_hash);
+        $authSource = self::normalizeAuthSource($this->auth_source ?? 'local');
+        $passwordHash = trim((string)($this->password_hash ?? ''));
+
+        if ($authSource === 'ldap' || $passwordHash === '') {
+            return false;
+        }
+
+        return password_verify($password, $passwordHash);
     }
     
     /**
@@ -56,6 +71,8 @@ class User extends BaseModel
      */
     public static function findByUsername($username)
     {
+        self::ensureSchema();
+
         $stmt = Database::query("
             SELECT * FROM users 
             WHERE username = ? AND is_active = 1
@@ -81,6 +98,8 @@ class User extends BaseModel
      */
     public static function upsertLdapUser(array $ldapUser): array
     {
+        self::ensureSchema();
+
         $username = $ldapUser['username'] ?? '';
         if ($username === '') {
             return ['id' => null, 'role' => $ldapUser['role'] ?? 'user'];
@@ -104,6 +123,8 @@ class User extends BaseModel
                 SET display_name = ?,
                     email = ?,
                     role = ?,
+                    auth_source = 'ldap',
+                    password_hash = NULL,
                     is_active = 1,
                     last_login = NOW()
                 WHERE id = ?
@@ -120,13 +141,11 @@ class User extends BaseModel
             ];
         }
 
-        $passwordHash = self::hashPassword(bin2hex(random_bytes(16)));
         Database::query("
-            INSERT INTO users (username, password_hash, display_name, email, role, is_active, last_login)
-            VALUES (?, ?, ?, ?, ?, 1, NOW())
+            INSERT INTO users (username, password_hash, display_name, email, role, auth_source, is_active, last_login)
+            VALUES (?, NULL, ?, ?, ?, 'ldap', 1, NOW())
         ", [
             $username,
-            $passwordHash,
             $displayName,
             $email,
             $role
@@ -143,6 +162,8 @@ class User extends BaseModel
      */
     public function updateLastLogin()
     {
+        self::ensureSchema();
+
         Database::query("
             UPDATE users 
             SET last_login = NOW() 
@@ -157,6 +178,11 @@ class User extends BaseModel
      */
     public function save()
     {
+        self::ensureSchema();
+
+        $authSource = self::normalizeAuthSource($this->auth_source ?? 'local');
+        $passwordHash = $authSource === 'ldap' ? null : $this->password_hash;
+
         if ($this->id) {
             // Update existing user
             Database::query("
@@ -165,27 +191,30 @@ class User extends BaseModel
                     display_name = ?,
                     email = ?,
                     role = ?,
+                    auth_source = ?,
                     is_active = ?
                 WHERE id = ?
             ", [
-                $this->password_hash,
+                $passwordHash,
                 $this->display_name,
                 $this->email,
                 $this->role,
+                $authSource,
                 $this->is_active,
                 $this->id
             ]);
         } else {
             // Insert new user
             Database::query("
-                INSERT INTO users (username, password_hash, display_name, email, role, is_active)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO users (username, password_hash, display_name, email, role, auth_source, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ", [
                 $this->username,
-                $this->password_hash,
+                $passwordHash,
                 $this->display_name,
                 $this->email,
                 $this->role,
+                $authSource,
                 $this->is_active ?? 1
             ]);
             
@@ -214,7 +243,93 @@ class User extends BaseModel
             'display_name' => $this->display_name,
             'email' => $this->email,
             'role' => $this->role,
-            'auth_type' => 'local'
+            'auth_type' => self::normalizeAuthSource($this->auth_source ?? 'local')
         ];
+    }
+
+    private static function normalizeAuthSource(?string $authSource): string
+    {
+        return strtolower(trim((string)$authSource)) === 'ldap' ? 'ldap' : 'local';
+    }
+
+    private static function ensureSchema(): void
+    {
+        if (self::$schemaChecked) {
+            return;
+        }
+
+        try {
+            $authSourceColumn = Database::query("
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'users'
+                  AND column_name = 'auth_source'
+                LIMIT 1
+            ")->fetch();
+
+            if (!$authSourceColumn) {
+                Database::query("
+                    ALTER TABLE users
+                    ADD COLUMN auth_source VARCHAR(20) NOT NULL DEFAULT 'local' AFTER role
+                ");
+            }
+
+            $passwordHashColumn = Database::query("
+                SELECT is_nullable
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'users'
+                  AND column_name = 'password_hash'
+                LIMIT 1
+            ")->fetch(\PDO::FETCH_ASSOC);
+
+            if (($passwordHashColumn['is_nullable'] ?? '') !== 'YES') {
+                Database::query("
+                    ALTER TABLE users
+                    MODIFY COLUMN password_hash VARCHAR(255) NULL
+                ");
+            }
+
+            Database::query("
+                UPDATE users
+                SET auth_source = 'local'
+                WHERE auth_source IS NULL OR TRIM(auth_source) = ''
+            ");
+
+            $auditLogsTable = Database::query("
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = DATABASE()
+                  AND table_name = 'audit_logs'
+                LIMIT 1
+            ")->fetch();
+
+            if ($auditLogsTable) {
+                Database::query("
+                    UPDATE users u
+                    INNER JOIN (
+                        SELECT DISTINCT username
+                        FROM audit_logs
+                        WHERE auth_type = 'ldap'
+                          AND username IS NOT NULL
+                          AND TRIM(username) <> ''
+                    ) ldap_users
+                        ON ldap_users.username = u.username
+                    SET u.auth_source = 'ldap',
+                        u.password_hash = NULL
+                ");
+            }
+
+            Database::query("
+                UPDATE users
+                SET password_hash = NULL
+                WHERE auth_source = 'ldap'
+            ");
+
+            self::$schemaChecked = true;
+        } catch (\Throwable $e) {
+            error_log('User schema check failed: ' . $e->getMessage());
+        }
     }
 }

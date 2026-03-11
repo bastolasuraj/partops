@@ -585,7 +585,7 @@
     <!-- Footer (hide on sitemap page) -->
     <footer v-if="$route.path !== '/sitemap'" class="footer">
       <div class="max-w-7xl mx-auto container">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-8">
+        <div class="hidden lg:grid lg:grid-cols-4 gap-8">
           <!-- Main Navigation -->
           <div>
             <h3 class="text-white font-semibold mb-4">Main</h3>
@@ -630,7 +630,7 @@
         </div>
 
         <!-- Copyright -->
-        <div class="mt-12 pt-6 border-t border-gray-700 text-center">
+        <div class="pt-6 text-center" :class="route.path !== '/login' ? 'lg:mt-12 lg:border-t lg:border-gray-700' : ''">
           <p class="text-sm text-gray-500">&copy; 2024 PAM - Parts Asset Management - <a href="https://fowler.ca">Fowler Construction</a> . All rights reserved.</p>
         </div>
       </div>

@@ -4,6 +4,7 @@ namespace App\Controllers;
 use App\Core\BaseController;
 use App\Core\Database;
 use App\Core\Response;
+use App\Models\AuditLog;
 use App\Models\Setting;
 
 class SettingsController extends BaseController
@@ -53,11 +54,21 @@ class SettingsController extends BaseController
     {
         $this->requireAuth();
 
-        $data = $this->settings->getMany(['allow_untracked_returns']);
+        $data = $this->settings->getMany([
+            'allow_untracked_returns',
+            'audit_logs_page_size',
+            'audit_logs_retention_limit',
+        ]);
         $allow = isset($data['allow_untracked_returns']) ? (bool)$data['allow_untracked_returns'] : false;
+        $pageSize = $this->normalizeLogPageSize($data['audit_logs_page_size'] ?? AuditLog::getDefaultPageSize());
+        $retentionLimit = $this->normalizeRetentionLimit($data['audit_logs_retention_limit'] ?? AuditLog::getActiveLogLimit());
 
         Response::success([
-            'allow_untracked_returns' => $allow
+            'allow_untracked_returns' => $allow,
+            'audit_logs_page_size' => $pageSize,
+            'audit_logs_retention_limit' => $retentionLimit,
+            'audit_logs_page_size_options' => AuditLog::getPageSizeOptions(),
+            'audit_logs_archive_file' => AuditLog::getArchiveFileName(),
         ]);
     }
 
@@ -66,28 +77,42 @@ class SettingsController extends BaseController
         $this->requireAdmin();
 
         $data = $this->request->all();
+        $knownKeys = [
+            'allow_untracked_returns',
+            'audit_logs_page_size',
+            'audit_logs_retention_limit',
+        ];
+        $providedKeys = array_values(array_intersect($knownKeys, array_keys($data)));
 
-        if (!array_key_exists('allow_untracked_returns', $data)) {
+        if (empty($providedKeys)) {
             Response::error('No settings provided', 422);
         }
 
-        $rawValue = $data['allow_untracked_returns'];
+        $response = [];
 
-        if (is_bool($rawValue)) {
-            $allow = $rawValue;
-        } elseif (is_numeric($rawValue)) {
-            $allow = ((int)$rawValue) === 1;
-        } elseif (is_string($rawValue)) {
-            $allow = in_array(strtolower($rawValue), ['1', 'true', 'yes', 'on'], true);
-        } else {
-            $allow = false;
+        if (array_key_exists('allow_untracked_returns', $data)) {
+            $allow = $this->normalizeBoolean($data['allow_untracked_returns']);
+            $this->settings->set('allow_untracked_returns', $allow);
+            $response['allow_untracked_returns'] = $allow;
         }
 
-        $this->settings->set('allow_untracked_returns', $allow);
+        if (array_key_exists('audit_logs_page_size', $data)) {
+            $pageSize = $this->normalizeLogPageSize($data['audit_logs_page_size']);
+            $this->settings->set('audit_logs_page_size', $pageSize);
+            $response['audit_logs_page_size'] = $pageSize;
+        }
 
-        Response::success([
-            'allow_untracked_returns' => $allow
-        ], 'Settings updated');
+        if (array_key_exists('audit_logs_retention_limit', $data)) {
+            $retentionLimit = $this->normalizeRetentionLimit($data['audit_logs_retention_limit']);
+            $this->settings->set('audit_logs_retention_limit', $retentionLimit);
+            AuditLog::enforceRetention();
+            $response['audit_logs_retention_limit'] = $retentionLimit;
+        }
+
+        $response['audit_logs_page_size_options'] = AuditLog::getPageSizeOptions();
+        $response['audit_logs_archive_file'] = AuditLog::getArchiveFileName();
+
+        Response::success($response, 'Settings updated');
     }
 
     public function truncateData(): void
@@ -261,5 +286,46 @@ class SettingsController extends BaseController
     private function isSafeTableName(string $table): bool
     {
         return (bool)preg_match('/^[A-Za-z0-9_]+$/', $table);
+    }
+
+    private function normalizeBoolean($rawValue): bool
+    {
+        if (is_bool($rawValue)) {
+            return $rawValue;
+        }
+
+        if (is_numeric($rawValue)) {
+            return ((int)$rawValue) === 1;
+        }
+
+        if (is_string($rawValue)) {
+            return in_array(strtolower($rawValue), ['1', 'true', 'yes', 'on'], true);
+        }
+
+        return false;
+    }
+
+    private function normalizeLogPageSize($rawValue): int
+    {
+        $pageSize = is_numeric($rawValue) ? (int)$rawValue : AuditLog::getDefaultPageSize();
+        if (!in_array($pageSize, AuditLog::getPageSizeOptions(), true)) {
+            Response::error('Audit log page size must be one of: 10, 25, 50, 100', 422);
+        }
+
+        return $pageSize;
+    }
+
+    private function normalizeRetentionLimit($rawValue): int
+    {
+        if (!is_numeric($rawValue)) {
+            Response::error('Audit log retention limit must be a whole number', 422);
+        }
+
+        $limit = (int)$rawValue;
+        if ($limit < 1 || $limit > 100000) {
+            Response::error('Audit log retention limit must be between 1 and 100000', 422);
+        }
+
+        return $limit;
     }
 }

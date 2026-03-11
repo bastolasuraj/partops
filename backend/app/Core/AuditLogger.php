@@ -19,11 +19,11 @@ class AuditLogger
         }
 
         $path = self::normalizePath($_SERVER['REQUEST_URI'] ?? '/');
-        if (!self::shouldAutoLog($path)) {
+        $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
+        if (!self::shouldAutoLog($method, $path)) {
             return;
         }
 
-        $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
         [$action, $description] = self::describeRoute($method, $path);
         [$resourceType, $resourceId] = self::extractResource($path);
         $requestPayload = self::sanitize(self::readRequestBody());
@@ -196,7 +196,7 @@ class AuditLogger
         }
     }
 
-    private static function shouldAutoLog(string $path): bool
+    private static function shouldAutoLog(string $method, string $path): bool
     {
         if ($path === '/' || $path === '/readme.html') {
             return false;
@@ -208,6 +208,12 @@ class AuditLogger
 
         if (strpos($path, '/audit-logs') === 0) {
             return false;
+        }
+
+        if ($method === 'GET') {
+            return in_array($path, [
+                '/reports/archive/download',
+            ], true);
         }
 
         return true;

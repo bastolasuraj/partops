@@ -8,6 +8,20 @@
           <p class="text-gray-600 text-base">Overview of your parts asset management system</p>
         </div>
         <div class="flex items-center gap-2">
+          <button
+            type="button"
+            @click="navigateTo('/guide')"
+            class="inline-flex items-center gap-2 px-3 py-1.5 bg-white text-blue-700 rounded-lg text-sm font-medium border border-blue-200 hover:bg-blue-50 transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+              <line x1="16" y1="13" x2="8" y2="13"></line>
+              <line x1="16" y1="17" x2="8" y2="17"></line>
+              <polyline points="10 9 9 9 8 9"></polyline>
+            </svg>
+            User Guide
+          </button>
           <span class="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium border border-blue-200">
             <span class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
             Live Data

@@ -8,4 +8,6 @@ CREATE TABLE IF NOT EXISTS app_settings (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT IGNORE INTO app_settings (setting_key, setting_value) VALUES
-('allow_untracked_returns', 'false');
+('allow_untracked_returns', 'false'),
+('audit_logs_page_size', '25'),
+('audit_logs_retention_limit', '20');

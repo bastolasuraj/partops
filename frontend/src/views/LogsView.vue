@@ -76,6 +76,24 @@
         </div>
       </div>
 
+      <div class="card slide-up mb-6">
+        <div class="card-body flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div class="text-sm text-gray-600">
+            Showing {{ currentPagination.from }}-{{ currentPagination.to }} of {{ currentPagination.total }}
+            {{ activeTabLabel.toLowerCase() }}.
+          </div>
+
+          <label class="flex items-center gap-3 text-sm text-gray-700">
+            <span class="font-semibold text-gray-900">Items per page</span>
+            <select v-model.number="pageSize" class="form-input w-24" @change="handlePageSizeChange">
+              <option v-for="size in pageSizeOptions" :key="size" :value="size">
+                {{ size }}
+              </option>
+            </select>
+          </label>
+        </div>
+      </div>
+
       <div class="card slide-up">
         <div class="card-header">
           <h2 class="text-xl font-semibold text-gray-800">{{ activeTabLabel }}</h2>
@@ -117,6 +135,33 @@
             </details>
           </div>
         </div>
+        <div v-if="currentPagination.total > 0" class="border-t border-gray-100 px-6 py-4">
+          <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div class="text-sm text-gray-600">
+              Page {{ currentPagination.page }} of {{ currentPagination.total_pages }}
+            </div>
+
+            <div class="flex items-center gap-3">
+              <button
+                type="button"
+                class="btn-outline"
+                :disabled="logsLoading || currentPagination.page <= 1"
+                @click="changePage(currentPagination.page - 1)"
+              >
+                Previous
+              </button>
+
+              <button
+                type="button"
+                class="btn-outline"
+                :disabled="logsLoading || currentPagination.page >= currentPagination.total_pages"
+                @click="changePage(currentPagination.page + 1)"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </template>
   </div>
@@ -126,8 +171,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { auditLogsApi } from '@/services/api'
 import { useToast } from '@/composables/useToast'
+import { useSettings } from '@/composables/useSettings'
 
 const { showToast } = useToast()
+const { loadSettings, auditLogsPageSize } = useSettings()
 
 const accessLoading = ref(true)
 const logsLoading = ref(false)
@@ -138,24 +185,38 @@ const password = ref('')
 const userLogs = ref([])
 const actionLogs = ref([])
 const activeTab = ref('user')
-const limit = ref(100)
+const userPage = ref(1)
+const actionPage = ref(1)
+const pageSize = ref(25)
+const pageSizeOptions = ref([10, 25, 50, 100])
+const emptyPagination = () => ({
+  page: 1,
+  per_page: 25,
+  total: 0,
+  total_pages: 1,
+  from: 0,
+  to: 0
+})
+const userPagination = ref(emptyPagination())
+const actionPagination = ref(emptyPagination())
 
 const tabs = computed(() => ([
   {
     key: 'user',
     label: 'User',
-    count: userLogs.value.length,
+    count: userPagination.value.total,
     activeClass: 'bg-blue-600 text-white shadow-sm'
   },
   {
     key: 'logs',
     label: 'Logs',
-    count: actionLogs.value.length,
+    count: actionPagination.value.total,
     activeClass: 'bg-green-600 text-white shadow-sm'
   }
 ]))
 
 const currentLogs = computed(() => activeTab.value === 'user' ? userLogs.value : actionLogs.value)
+const currentPagination = computed(() => activeTab.value === 'user' ? userPagination.value : actionPagination.value)
 const activeTabLabel = computed(() => activeTab.value === 'user' ? 'User Activity' : 'Logs')
 
 const loadAccessStatus = async () => {
@@ -180,9 +241,21 @@ const loadLogs = async () => {
   logsLoading.value = true
 
   try {
-    const response = await auditLogsApi.getAll({ limit: limit.value })
+    const response = await auditLogsApi.getAll({
+      per_page: pageSize.value,
+      user_page: userPage.value,
+      action_page: actionPage.value
+    })
     userLogs.value = Array.isArray(response?.data?.user_logs) ? response.data.user_logs : []
     actionLogs.value = Array.isArray(response?.data?.action_logs) ? response.data.action_logs : []
+    userPagination.value = normalizePagination(response?.data?.user_pagination, pageSize.value)
+    actionPagination.value = normalizePagination(response?.data?.action_pagination, pageSize.value)
+    pageSizeOptions.value = Array.isArray(response?.data?.page_size_options) && response.data.page_size_options.length > 0
+      ? response.data.page_size_options
+      : [10, 25, 50, 100]
+    pageSize.value = userPagination.value.per_page || actionPagination.value.per_page || pageSize.value
+    userPage.value = userPagination.value.page
+    actionPage.value = actionPagination.value.page
     verified.value = true
     verifiedUntil.value = response?.data?.verified_until || verifiedUntil.value
   } catch (error) {
@@ -197,6 +270,44 @@ const loadLogs = async () => {
   } finally {
     logsLoading.value = false
   }
+}
+
+const normalizePagination = (pagination, fallbackPerPage) => {
+  if (!pagination || typeof pagination !== 'object') {
+    return {
+      ...emptyPagination(),
+      per_page: fallbackPerPage
+    }
+  }
+
+  return {
+    page: Number(pagination.page) > 0 ? Number(pagination.page) : 1,
+    per_page: Number(pagination.per_page) > 0 ? Number(pagination.per_page) : fallbackPerPage,
+    total: Number(pagination.total) > 0 ? Number(pagination.total) : 0,
+    total_pages: Number(pagination.total_pages) > 0 ? Number(pagination.total_pages) : 1,
+    from: Number(pagination.from) > 0 ? Number(pagination.from) : 0,
+    to: Number(pagination.to) > 0 ? Number(pagination.to) : 0
+  }
+}
+
+const handlePageSizeChange = async () => {
+  userPage.value = 1
+  actionPage.value = 1
+  await loadLogs()
+}
+
+const changePage = async (nextPage) => {
+  if (logsLoading.value) {
+    return
+  }
+
+  if (activeTab.value === 'user') {
+    userPage.value = Math.max(1, nextPage)
+  } else {
+    actionPage.value = Math.max(1, nextPage)
+  }
+
+  await loadLogs()
 }
 
 const confirmAccess = async () => {
@@ -326,5 +437,9 @@ const formatResult = (entry) => {
   return parts.join(' | ')
 }
 
-onMounted(loadAccessStatus)
+onMounted(async () => {
+  await loadSettings()
+  pageSize.value = Number(auditLogsPageSize.value) || pageSize.value
+  await loadAccessStatus()
+})
 </script>

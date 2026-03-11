@@ -89,18 +89,28 @@ class AuditLogController extends BaseController
         $this->requireAdmin();
         $this->requireLogsAccess();
 
-        $limit = (int)$this->request->query('limit', 100);
-        $limit = max(10, min($limit, 200));
+        $allowedPerPage = AuditLog::getPageSizeOptions();
+        $defaultPerPage = AuditLog::getDefaultPageSize();
+        $requestedPerPage = (int)$this->request->query('per_page', $this->request->query('limit', $defaultPerPage));
+        $perPage = in_array($requestedPerPage, $allowedPerPage, true) ? $requestedPerPage : $defaultPerPage;
+        $sharedPage = max(1, (int)$this->request->query('page', 1));
+        $userPage = max(1, (int)$this->request->query('user_page', $sharedPage));
+        $actionPage = max(1, (int)$this->request->query('action_page', $sharedPage));
 
-        AuditLogger::recordActionEvent('audit_logs.view', 'Viewed audit logs', [
-            'metadata' => ['limit' => $limit],
-        ]);
+        $userLogs = AuditLog::paginateByCategory('user', $userPage, $perPage);
+        $actionLogs = AuditLog::paginateByCategory('action', $actionPage, $perPage);
 
         Response::success([
             'verified_until' => AuditLogger::getLogsAccessVerifiedUntil(),
-            'user_logs' => AuditLog::recentByCategory('user', $limit),
-            'action_logs' => AuditLog::recentByCategory('action', $limit),
-            'limit' => $limit,
+            'user_logs' => $userLogs['data'],
+            'action_logs' => $actionLogs['data'],
+            'user_pagination' => $userLogs['pagination'],
+            'action_pagination' => $actionLogs['pagination'],
+            'per_page' => $perPage,
+            'default_per_page' => $defaultPerPage,
+            'page_size_options' => $allowedPerPage,
+            'retention_limit' => AuditLog::getActiveLogLimit(),
+            'archive_file' => AuditLog::getArchiveFileName(),
         ]);
     }
 }
