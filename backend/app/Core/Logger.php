@@ -26,15 +26,15 @@ class Logger
             // Ensure log directory exists
             $logDir = dirname(self::$logFile);
             if (!is_dir($logDir)) {
-                if (!mkdir($logDir, 0777, true) && !is_dir($logDir)) {
+                if (!mkdir($logDir, 0755, true) && !is_dir($logDir)) {
                     error_log("Failed to create log directory: {$logDir}");
                     return;
                 }
             }
-            
+
             // Make sure directory is writable
             if (!is_writable($logDir)) {
-                chmod($logDir, 0777);
+                chmod($logDir, 0755);
             }
             
             $timestamp = date('Y-m-d H:i:s');

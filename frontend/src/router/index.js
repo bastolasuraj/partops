@@ -1,6 +1,24 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { authApi } from '@/services/api'
 
+// Cached auth state to avoid a round-trip on every navigation.
+// Cleared on logout (call clearAuthCache() from the logout handler).
+let _authCache = null
+
+export const clearAuthCache = () => { _authCache = null }
+
+const getAuthState = async () => {
+  if (_authCache !== null) return _authCache
+  try {
+    const response = await authApi.me()
+    const user = response?.data?.user
+    _authCache = user ? { authenticated: true, role: user.role } : { authenticated: false, role: null }
+  } catch {
+    _authCache = { authenticated: false, role: null }
+  }
+  return _authCache
+}
+
 const routes = [
   {
     path: '/login',
@@ -132,36 +150,27 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   // Check if route requires authentication (default: true)
   const requiresAuth = to.meta.requiresAuth !== false
-  
+
   if (!requiresAuth) {
-    // Public route, allow access
     next()
     return
   }
-  
-  try {
-    // Check if user is authenticated
-    const response = await authApi.check()
-    
-    if (response.data.authenticated) {
-      if (to.meta.requiresAdmin) {
-        const meResponse = await authApi.me()
-        const role = meResponse?.data?.user?.role
-        if (role !== 'admin') {
-          next('/dashboard')
-          return
-        }
-      }
 
-      // User is authenticated, allow access
-      next()
-    } else {
-      // User is not authenticated, redirect to login
+  try {
+    const auth = await getAuthState()
+
+    if (!auth.authenticated) {
       next(`/login?redirect=${encodeURIComponent(to.fullPath)}`)
+      return
     }
-  } catch (error) {
-    // Error checking auth, redirect to login
-    console.error('Auth check failed:', error)
+
+    if (to.meta.requiresAdmin && auth.role !== 'admin') {
+      next('/dashboard')
+      return
+    }
+
+    next()
+  } catch {
     next(`/login?redirect=${encodeURIComponent(to.fullPath)}`)
   }
 })

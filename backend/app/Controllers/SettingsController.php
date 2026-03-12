@@ -119,6 +119,11 @@ class SettingsController extends BaseController
     {
         $this->requireAdmin();
 
+        $appEnv = strtolower(trim((string)(getenv('APP_ENV') ?: 'production')));
+        if (!in_array($appEnv, ['development', 'dev', 'test', 'testing'], true)) {
+            Response::error('Data truncation is only available in development/test environments', 403);
+        }
+
         $mode = strtolower(trim((string)$this->request->get('mode', 'operational')));
         if (!in_array($mode, ['operational', 'selective', 'wipe_all'], true)) {
             Response::error('Invalid mode. Use: operational, selective, or wipe_all', 422);
@@ -212,7 +217,7 @@ class SettingsController extends BaseController
 
     public function databaseTables(): void
     {
-        $this->requireAuth();
+        $this->requireAdmin();
 
         $allTables = $this->getDatabaseTables();
         $allTableSet = array_flip($allTables);

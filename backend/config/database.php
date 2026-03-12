@@ -29,10 +29,10 @@ $getConfig = static function (string $key, string $default) use ($env): string {
 };
 
 return [
-    'host' => $getConfig('DB_HOST', '192.168.3.4'),
-    'database' => $getConfig('DB_NAME', 'partsam'),
-    'username' => $getConfig('DB_USER', 'pr'),
-    'password' => $getConfig('DB_PASS', 'eu9MB6!fh2@PR'),
+    'host' => $getConfig('DB_HOST', ''),
+    'database' => $getConfig('DB_NAME', ''),
+    'username' => $getConfig('DB_USER', ''),
+    'password' => $getConfig('DB_PASS', ''),
     'charset' => 'utf8mb4',
     'collation' => 'utf8mb4_unicode_ci',
 ];

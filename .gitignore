@@ -23,7 +23,9 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 backend/vendor/
-backend/public/
+# frontend build output that gets copied into backend/public (not the PHP entry point)
+backend/public/assets/
+backend/public/index.html
 
 # Runtime / local logs
 **/*.log

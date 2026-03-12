@@ -55,7 +55,7 @@ abstract class BaseController
                         break;
                         
                     case 'integer':
-                        if ($value !== null && !filter_var($value, FILTER_VALIDATE_INT)) {
+                        if ($value !== null && filter_var($value, FILTER_VALIDATE_INT) === false) {
                             $errors[$field][] = "{$field} must be an integer";
                         }
                         break;

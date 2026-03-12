@@ -5,7 +5,7 @@
 return [
     'name' => 'PAM API',
     'version' => '2.0.0',
-    'debug' => getenv('APP_DEBUG') ?: true,
+    'debug' => filter_var(getenv('APP_DEBUG') ?: 'false', FILTER_VALIDATE_BOOLEAN),
     'timezone' => 'America/Toronto',
     'cors' => [
         'allowed_origins' => ['*'],

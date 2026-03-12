@@ -140,10 +140,16 @@ class Part extends BaseModel
     
     public function adjustStock(int $partId, int $adjustment): int
     {
-        $currentStock = $this->getStock($partId);
-        $newStock = max(0, $currentStock + $adjustment);
-        $this->updateStock($partId, $newStock);
-        return $newStock;
+        // Atomic update to avoid read-modify-write race conditions.
+        // GREATEST(0, ...) prevents stock going negative.
+        Database::query(
+            "INSERT INTO inventory_levels (part_id, quantity)
+             VALUES (?, GREATEST(0, ?))
+             ON DUPLICATE KEY UPDATE quantity = GREATEST(0, quantity + ?)",
+            [$partId, $adjustment, $adjustment]
+        );
+
+        return $this->getStock($partId);
     }
 
     public function getFifoIssueUnitPrice(int $partId, int $quantity): float

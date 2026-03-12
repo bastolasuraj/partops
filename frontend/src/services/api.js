@@ -5,10 +5,6 @@ const envApiUrl = import.meta.env.VITE_API_URL
 const normalizeUrl = (url) => url?.replace(/\/+$/, '')
 
 const resolveApiBaseUrl = () => {
-  if (typeof window === 'undefined') {
-    return normalizeUrl(envApiUrl) || '/api'
-  }
-
   if (!envApiUrl) {
     return '/api'
   }
@@ -18,17 +14,7 @@ const resolveApiBaseUrl = () => {
   }
 
   try {
-    const envUrl = new URL(envApiUrl)
-
-    if (envUrl.hostname !== window.location.hostname) {
-      envUrl.hostname = window.location.hostname
-    }
-
-    if (!envUrl.port && window.location.port) {
-      envUrl.port = window.location.port
-    }
-
-    return normalizeUrl(envUrl.toString())
+    return normalizeUrl(new URL(envApiUrl).toString())
   } catch (error) {
     return '/api'
   }
@@ -36,8 +22,6 @@ const resolveApiBaseUrl = () => {
 
 const API_BASE_URL = resolveApiBaseUrl()
 const ERROR_REPORT_PATH = '/audit-logs/errors'
-
-console.log('API Base URL:', API_BASE_URL)
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -237,7 +221,6 @@ api.interceptors.request.use(
       }
     }
 
-    console.log(`[API Request] ${config.method?.toUpperCase()} ${config.url}`)
     return config
   },
   (error) => {
@@ -249,7 +232,6 @@ api.interceptors.request.use(
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => {
-    console.log(`[API Response] ${response.config.url}`, response.data)
     return response.data
   },
   (error) => {
@@ -260,17 +242,6 @@ api.interceptors.response.use(
     if (error.response?.data && validationMessage) {
       error.response.data.message = validationMessage
     }
-
-    const details = {
-      url: error.config?.url,
-      method: error.config?.method,
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      message: message,
-      data: error.response?.data
-    }
-    
-    console.error('[API Error]', details)
 
     error.__pamReported = true
 
@@ -290,18 +261,6 @@ api.interceptors.response.use(
         endpoint: requestUrl,
         api_message: error.response?.data?.message
       })
-    }
-    
-    // Log to localStorage for debugging
-    if (typeof localStorage !== 'undefined') {
-      const errorLog = JSON.parse(localStorage.getItem('api_errors') || '[]')
-      errorLog.push({
-        timestamp: new Date().toISOString(),
-        ...details
-      })
-      // Keep only last 50 errors
-      if (errorLog.length > 50) errorLog.shift()
-      localStorage.setItem('api_errors', JSON.stringify(errorLog))
     }
     
     // Redirect to login on 401 (except for auth endpoints)

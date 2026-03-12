@@ -110,12 +110,6 @@ class Router
         
         Response::json([
             'error' => 'Route not found',
-            'uri' => $uri,
-            'method' => $method,
-            'debug' => [
-                'raw_uri' => $_SERVER['REQUEST_URI'] ?? 'unknown',
-                'routes_registered' => count($this->routes)
-            ]
         ], 404);
     }
 }

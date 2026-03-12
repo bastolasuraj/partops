@@ -660,6 +660,7 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import { authApi } from '@/services/api'
+import { clearAuthCache } from '@/router/index'
 import { useSettings } from '@/composables/useSettings'
 
 const router = useRouter()
@@ -772,10 +773,11 @@ watch(() => route.path, (path) => {
 const handleLogout = async () => {
   try {
     await authApi.logout()
+    clearAuthCache()
     showToast('Logged out successfully', 'success')
     router.push('/login')
   } catch (error) {
-    console.error('Logout error:', error)
+    clearAuthCache()
     showToast('Logout failed', 'error')
   }
 }

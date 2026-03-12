@@ -53,11 +53,12 @@ class AuthController extends BaseController
                 // Update last login
                 $localUser->updateLastLogin();
                 
-                // Start session
+                // Start session and regenerate ID to prevent session fixation
                 if (session_status() === PHP_SESSION_NONE) {
                     session_start();
                 }
-                
+                session_regenerate_id(true);
+
                 $firstName = $this->extractFirstName($localUser->display_name, $localUser->username);
 
                 // Store user info in session
@@ -109,11 +110,12 @@ class AuthController extends BaseController
                         'username' => $user['username']
                     ]);
                     
-                    // Start session
+                    // Start session and regenerate ID to prevent session fixation
                     if (session_status() === PHP_SESSION_NONE) {
                         session_start();
                     }
-                    
+                    session_regenerate_id(true);
+
                     // Store user info in session (LDAP users have 'user' role)
                     $firstName = $user['first_name'] ?? $this->extractFirstName(
                         $user['display_name'] ?? $user['username'],

@@ -86,52 +86,59 @@ class InventoryController extends BaseController
         $locationPayload = $this->buildLocationPayload();
         $normalizedLocation = $this->locationLevel->normalizeLocationPayload($locationPayload, $part);
 
-        // Adjust stock
-        $newStock = $this->part->adjustStock((int)$data['part_id'], (int)$data['quantity']);
-        $this->locationLevel->addStock((int)$data['part_id'], (int)$data['quantity'], $normalizedLocation, $part);
-
         // Get logged-in user info (use display name)
         $createdBy = $_SESSION['user']['display_name'] ?? $_SESSION['user']['username'] ?? null;
 
-        // Record transaction - if it has reference info, it's a return, otherwise it's incoming
-        if ($referenceType && $referenceId) {
-            $returnUnitPrice = $this->part->getReferenceOutstandingIssueUnitPrice(
-                (int)$data['part_id'],
-                (string)$referenceType,
-                (int)$referenceId,
-                (int)$data['quantity']
-            );
+        $db = Database::getInstance();
+        $db->beginTransaction();
+        try {
+            // Adjust stock and record transaction atomically
+            $newStock = $this->part->adjustStock((int)$data['part_id'], (int)$data['quantity']);
+            $this->locationLevel->addStock((int)$data['part_id'], (int)$data['quantity'], $normalizedLocation, $part);
 
-            $this->transaction->recordReturn(
-                (int)$data['part_id'],
-                (int)$data['quantity'],
-                (string)$referenceType,
-                (int)$referenceId,
-                $notes,
-                $createdBy,
-                $returnUnitPrice,
-                null,
-                $normalizedLocation
-            );
+            if ($referenceType && $referenceId) {
+                $returnUnitPrice = $this->part->getReferenceOutstandingIssueUnitPrice(
+                    (int)$data['part_id'],
+                    (string)$referenceType,
+                    (int)$referenceId,
+                    (int)$data['quantity']
+                );
 
-            $this->part->syncUnitPriceFromFifo((int)$data['part_id']);
-        } else {
-            $this->transaction->recordIncoming(
-                (int)$data['part_id'],
-                (int)$data['quantity'],
-                is_numeric($supplierId) ? (int)$supplierId : null,
-                $unitPrice,
-                $notes,
-                $createdBy,
-                (bool)$hasCore,
-                (float)$coreCost,
-                (float)$coreRebateExpected,
-                (float)$coreRebateReceived,
-                'vendor',
-                $normalizedLocation
-            );
-            $this->part->syncUnitPriceFromFifo((int)$data['part_id']);
+                $this->transaction->recordReturn(
+                    (int)$data['part_id'],
+                    (int)$data['quantity'],
+                    (string)$referenceType,
+                    (int)$referenceId,
+                    $notes,
+                    $createdBy,
+                    $returnUnitPrice,
+                    null,
+                    $normalizedLocation
+                );
+            } else {
+                $this->transaction->recordIncoming(
+                    (int)$data['part_id'],
+                    (int)$data['quantity'],
+                    is_numeric($supplierId) ? (int)$supplierId : null,
+                    $unitPrice,
+                    $notes,
+                    $createdBy,
+                    (bool)$hasCore,
+                    (float)$coreCost,
+                    (float)$coreRebateExpected,
+                    (float)$coreRebateReceived,
+                    'vendor',
+                    $normalizedLocation
+                );
+            }
+
+            $db->commit();
+        } catch (\Throwable $e) {
+            $db->rollBack();
+            Response::error('Incoming processing failed', 500, $e->getMessage());
         }
+
+        $this->part->syncUnitPriceFromFifo((int)$data['part_id']);
 
         Response::success([
             'part_id' => $data['part_id'],
@@ -213,6 +220,25 @@ class InventoryController extends BaseController
         $db->beginTransaction();
 
         try {
+            // Re-validate stock inside the transaction with row locking to prevent oversell.
+            foreach ($items as $item) {
+                $partId = (int)$item['part_id'];
+                $requestedQty = (int)$item['quantity'];
+
+                $lockedRow = Database::query(
+                    "SELECT quantity FROM inventory_levels WHERE part_id = ? FOR UPDATE",
+                    [$partId]
+                )->fetch();
+                $lockedStock = $lockedRow ? (int)$lockedRow['quantity'] : 0;
+
+                if ($lockedStock < $requestedQty) {
+                    $db->rollBack();
+                    $part = $this->part->find($partId);
+                    $partName = $part ? ($part['fowler_part_number'] ?? "ID:{$partId}") : "ID:{$partId}";
+                    Response::error("Insufficient stock for {$partName}: requested {$requestedQty}, available {$lockedStock}", 422);
+                }
+            }
+
             // Process checkout
             $results = [];
             $checkoutAt = date('Y-m-d H:i:s');
@@ -342,26 +368,33 @@ class InventoryController extends BaseController
             (int)$data['reference_id'],
             (int)$data['quantity']
         );
-        
-        // Adjust stock
-        $newStock = $this->part->adjustStock($data['part_id'], $data['quantity']);
-        $this->locationLevel->addStock((int)$data['part_id'], (int)$data['quantity'], $normalizedLocation, $part);
-        
-        // Record transaction
-        $this->transaction->recordReturn(
-            $data['part_id'],
-            $data['quantity'],
-            $data['reference_type'],
-            $data['reference_id'],
-            $notes,
-            $createdBy,
-            $returnUnitPrice,
-            null,
-            $normalizedLocation
-        );
+
+        $db = Database::getInstance();
+        $db->beginTransaction();
+        try {
+            $newStock = $this->part->adjustStock($data['part_id'], $data['quantity']);
+            $this->locationLevel->addStock((int)$data['part_id'], (int)$data['quantity'], $normalizedLocation, $part);
+
+            $this->transaction->recordReturn(
+                $data['part_id'],
+                $data['quantity'],
+                $data['reference_type'],
+                $data['reference_id'],
+                $notes,
+                $createdBy,
+                $returnUnitPrice,
+                null,
+                $normalizedLocation
+            );
+
+            $db->commit();
+        } catch (\Throwable $e) {
+            $db->rollBack();
+            Response::error('Return processing failed', 500, $e->getMessage());
+        }
 
         $this->part->syncUnitPriceFromFifo((int)$data['part_id']);
-        
+
         Response::success([
             'part_id' => $data['part_id'],
             'quantity_returned' => $data['quantity'],

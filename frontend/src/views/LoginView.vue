@@ -105,6 +105,7 @@
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { authApi } from '../services/api'
+import { clearAuthCache } from '../router/index'
 import { useToast } from '../composables/useToast'
 
 const router = useRouter()
@@ -126,6 +127,7 @@ const handleLogin = async () => {
     
     // Only show success if we actually got a successful response
     if (response?.data?.user) {
+      clearAuthCache()
       showToast('Login successful!', 'success')
       const redirectTarget = route.query.redirect
       if (redirectTarget) {

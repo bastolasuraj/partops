@@ -14,11 +14,8 @@ class InventoryTransaction extends BaseModel
         'location_key', 'location_aisle', 'location_shelf', 'location_bay', 'location_alt',
         'created_at'
     ];
-    private static bool $schemaChecked = false;
-
     public function __construct()
     {
-        $this->ensureSchema();
     }
     
     public function recordIncoming(
@@ -235,40 +232,5 @@ class InventoryTransaction extends BaseModel
         return Database::query($sql)->fetchAll();
     }
 
-    private function ensureSchema(): void
-    {
-        if (self::$schemaChecked) {
-            return;
-        }
-
-        try {
-            $columns = [
-                'location_key' => "ALTER TABLE {$this->table} ADD COLUMN location_key VARCHAR(255) NULL AFTER core_rebate_received",
-                'location_aisle' => "ALTER TABLE {$this->table} ADD COLUMN location_aisle VARCHAR(20) NULL AFTER location_key",
-                'location_shelf' => "ALTER TABLE {$this->table} ADD COLUMN location_shelf VARCHAR(20) NULL AFTER location_aisle",
-                'location_bay' => "ALTER TABLE {$this->table} ADD COLUMN location_bay VARCHAR(20) NULL AFTER location_shelf",
-                'location_alt' => "ALTER TABLE {$this->table} ADD COLUMN location_alt VARCHAR(255) NULL AFTER location_bay",
-            ];
-
-            foreach ($columns as $name => $sql) {
-                $exists = Database::query(
-                    "SELECT 1
-                     FROM information_schema.columns
-                     WHERE table_schema = DATABASE()
-                       AND table_name = ?
-                       AND column_name = ?
-                     LIMIT 1",
-                    [$this->table, $name]
-                )->fetch();
-
-                if (!$exists) {
-                    Database::query($sql);
-                }
-            }
-
-            self::$schemaChecked = true;
-        } catch (\Throwable $e) {
-            error_log('Inventory transaction schema check failed: ' . $e->getMessage());
-        }
-    }
 }
+

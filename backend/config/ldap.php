@@ -24,13 +24,13 @@ if (file_exists($envFile)) {
 
 return [
     // LDAP Server Settings
-    'host' => getenv('LDAP_HOST') ?: 'ldap://Coral.FCCL.local',
+    'host' => getenv('LDAP_HOST') ?: '',
     'port' => (int)(getenv('LDAP_PORT') ?: 389),
     'use_ssl' => getenv('LDAP_USE_SSL') === 'true',
     'use_tls' => getenv('LDAP_USE_TLS') === 'true',
-    
+
     // Base DN for user searches
-    'base_dn' => getenv('LDAP_BASE_DN') ?: 'DC=FCCL,DC=local',
+    'base_dn' => getenv('LDAP_BASE_DN') ?: '',
     
     // User search settings
     'user_search_attribute' => getenv('LDAP_USER_SEARCH_ATTR') ?: 'sAMAccountName',
@@ -44,10 +44,7 @@ return [
     // Allowed groups (comma-separated). Defaults to PAMAdmin and PAMUser.
     // Example: LDAP_ALLOWED_GROUPS="CN=PAMAdmin,OU=Security,OU=Groups,OU=Corp,DC=FCCL,DC=local,CN=PAMUser,OU=Security,OU=Groups,OU=Corp,DC=FCCL,DC=local"
     'allowed_groups' => (function () {
-        $defaultGroups = [
-            'CN=PAMAdmin,OU=Security,OU=Groups,OU=Corp,DC=FCCL,DC=local',
-            'CN=PAMUser,OU=Security,OU=Groups,OU=Corp,DC=FCCL,DC=local',
-        ];
+        $defaultGroups = [];
 
         $envGroups = getenv('LDAP_ALLOWED_GROUPS') ?: '';
         $parsed = array_values(array_filter(array_map('trim', preg_split('/\s*,\s*/', $envGroups))));
@@ -56,8 +53,8 @@ return [
     })(),
 
     // Role mapping groups
-    'admin_group' => getenv('LDAP_ADMIN_GROUP') ?: 'CN=PAMAdmin,OU=Security,OU=Groups,OU=Corp,DC=FCCL,DC=local',
-    'user_group' => getenv('LDAP_USER_GROUP') ?: 'CN=PAMUser,OU=Security,OU=Groups,OU=Corp,DC=FCCL,DC=local',
+    'admin_group' => getenv('LDAP_ADMIN_GROUP') ?: '',
+    'user_group' => getenv('LDAP_USER_GROUP') ?: '',
     
     // Bind credentials (optional - for searching)
     // If empty, will attempt anonymous bind or direct user bind

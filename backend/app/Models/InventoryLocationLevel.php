@@ -17,11 +17,8 @@ class InventoryLocationLevel extends BaseModel
         'quantity',
     ];
 
-    private static bool $schemaChecked = false;
-
     public function __construct()
     {
-        $this->ensureSchema();
     }
 
     public function normalizeLocationPayload(array $payload = [], ?array $part = null): array
@@ -212,7 +209,8 @@ class InventoryLocationLevel extends BaseModel
              FROM {$this->table}
              WHERE part_id = ?
                AND location_key = ?
-             LIMIT 1",
+             LIMIT 1
+             FOR UPDATE",
             [$partId, $locationKey]
         )->fetch();
 
@@ -259,7 +257,8 @@ class InventoryLocationLevel extends BaseModel
              FROM {$this->table}
              WHERE part_id = ?
                AND quantity > 0
-             ORDER BY last_updated ASC, id ASC",
+             ORDER BY last_updated ASC, id ASC
+             FOR UPDATE",
             [$partId]
         )->fetchAll();
 
@@ -446,33 +445,5 @@ class InventoryLocationLevel extends BaseModel
         return $row;
     }
 
-    private function ensureSchema(): void
-    {
-        if (self::$schemaChecked) {
-            return;
-        }
-
-        try {
-            Database::query(
-                "CREATE TABLE IF NOT EXISTS {$this->table} (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    part_id INT NOT NULL,
-                    location_key VARCHAR(255) NOT NULL,
-                    location_aisle VARCHAR(20) NULL,
-                    location_shelf VARCHAR(20) NULL,
-                    location_bay VARCHAR(20) NULL,
-                    location_alt VARCHAR(255) NULL,
-                    quantity INT NOT NULL DEFAULT 0,
-                    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    FOREIGN KEY (part_id) REFERENCES parts(id) ON DELETE CASCADE,
-                    UNIQUE KEY unique_part_location (part_id, location_key),
-                    KEY idx_part_id (part_id)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-            );
-
-            self::$schemaChecked = true;
-        } catch (\Throwable $e) {
-            error_log('Inventory location schema check failed: ' . $e->getMessage());
-        }
-    }
 }
+

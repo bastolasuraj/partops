@@ -14,12 +14,9 @@ class PartController extends BaseController
     private Supplier $supplier;
     private InventoryTransaction $transaction;
     private InventoryLocationLevel $locationLevel;
-    private static bool $partsSchemaChecked = false;
-    
     public function __construct()
     {
         parent::__construct();
-        $this->ensurePartsSchema();
         $this->part = new Part();
         $this->supplier = new Supplier();
         $this->transaction = new InventoryTransaction();
@@ -1180,16 +1177,31 @@ class PartController extends BaseController
 
     private function getNextFowlerSequence(): int
     {
+        // Use an atomic INSERT ... ON DUPLICATE KEY UPDATE to allocate the next
+        // sequence value without race conditions. The sequence table must exist
+        // (see migration: add_fowler_sequence_table.sql).
         try {
+            \App\Core\Database::query(
+                "INSERT INTO fowler_part_sequences (id, seq_value)
+                 VALUES (1, 1)
+                 ON DUPLICATE KEY UPDATE seq_value = seq_value + 1"
+            );
+
+            $row = \App\Core\Database::query(
+                "SELECT seq_value FROM fowler_part_sequences WHERE id = 1"
+            )->fetch();
+
+            return $row ? (int)$row['seq_value'] : 1;
+        } catch (\Exception $e) {
+            // Fallback to MAX+1 if sequence table is not yet available,
+            // but log the issue so it is addressed.
+            error_log('Fowler sequence table unavailable, falling back to MAX+1: ' . $e->getMessage());
             $row = \App\Core\Database::query(
                 "SELECT MAX(CAST(SUBSTRING(fowler_part_number, 5) AS UNSIGNED)) as max_num
                  FROM parts
                  WHERE fowler_part_number REGEXP '^FC-P[0-9]{6}$'"
             )->fetch();
-            $max = isset($row['max_num']) ? (int)$row['max_num'] : 0;
-            return $max + 1;
-        } catch (\Exception $e) {
-            return 1;
+            return isset($row['max_num']) ? (int)$row['max_num'] + 1 : 1;
         }
     }
 
@@ -1324,49 +1336,6 @@ class PartController extends BaseController
         return strtoupper($this->normalizeString($value));
     }
 
-    /**
-     * Ensure required columns exist in legacy databases.
-     * Keeps API operational even when migrations were not run manually.
-     */
-    private function ensurePartsSchema(): void
-    {
-        if (self::$partsSchemaChecked) {
-            return;
-        }
-
-        try {
-            $requiredColumns = [
-                'unit_of_measure' => "ALTER TABLE parts ADD COLUMN unit_of_measure VARCHAR(30) NOT NULL DEFAULT 'each' AFTER supplier_part_number",
-                'location_alt' => "ALTER TABLE parts ADD COLUMN location_alt VARCHAR(255) NULL AFTER location_bay",
-                'deleted_at' => "ALTER TABLE parts ADD COLUMN deleted_at TIMESTAMP NULL DEFAULT NULL AFTER unit_price",
-            ];
-
-            foreach ($requiredColumns as $column => $sql) {
-                if (!$this->partsColumnExists($column)) {
-                    \App\Core\Database::query($sql);
-                }
-            }
-
-            self::$partsSchemaChecked = true;
-        } catch (\Throwable $e) {
-            error_log('Part schema check failed: ' . $e->getMessage());
-        }
-    }
-
-    private function partsColumnExists(string $columnName): bool
-    {
-        $row = \App\Core\Database::query(
-            "SELECT 1
-             FROM information_schema.columns
-             WHERE table_schema = DATABASE()
-               AND table_name = 'parts'
-               AND column_name = ?
-             LIMIT 1",
-            [$columnName]
-        )->fetch();
-
-        return $row !== false;
-    }
 
     private function normalizeUnitOfMeasure($value): string
     {
