@@ -477,7 +477,7 @@ class PartController extends BaseController
         $rawSupplierPartNumber = $this->normalizeString($item['supplier_part_number'] ?? '');
         $rawManufacturer = $this->normalizeString($item['supplier_name'] ?? '');
         $rawDescription = $this->normalizeString($item['description'] ?? $item['name'] ?? '');
-        $rawLocation = $this->normalizeString($item['location_raw'] ?? '');
+        $rawLocation = $this->deriveImportRawLocation($item);
         $rawAlternateLocation = $this->normalizeString($item['location_alt'] ?? '');
         $rawQuantity = $this->normalizeString($item['quantity'] ?? '');
         $rawUnitPrice = $this->normalizeString($item['unit_price'] ?? '');
@@ -530,8 +530,8 @@ class PartController extends BaseController
                 'missing_part_number',
                 'supplier_part_number',
                 'error',
-                'Row skipped because Supplier Part Number is required.',
-                'Add a Supplier/Vendor Part Number in the first column and upload again.'
+                'Supplier PN is required.',
+                'Add a Supplier/Vendor PN.'
             );
         }
 
@@ -541,8 +541,8 @@ class PartController extends BaseController
                 'missing_manufacturer',
                 'supplier_name',
                 'error',
-                'Row skipped because manufacturer is required.',
-                'Fill in the manufacturer/vendor column before importing.'
+                'Manufacturer is required.',
+                'Add manufacturer.'
             );
         }
 
@@ -574,8 +574,8 @@ class PartController extends BaseController
                 'missing_location',
                 'location',
                 'error',
-                'Row skipped because location is required.',
-                'Provide either a structured aisle-shelf-bay location or an alternate location value.'
+                'Location is required.',
+                'Provide location value.'
             );
         } else {
             $row['suggested_item']['location_raw'] = $location['location_raw'];
@@ -956,12 +956,29 @@ class PartController extends BaseController
     private function buildLocationPayloadFromImportItem(array $item): array
     {
         return [
-            'location_raw' => $this->normalizeString($item['location_raw'] ?? ''),
+            'location_raw' => $this->deriveImportRawLocation($item),
             'location_aisle' => $this->normalizeString($item['location_aisle'] ?? ''),
             'location_shelf' => $this->normalizeString($item['location_shelf'] ?? ''),
             'location_bay' => $this->normalizeString($item['location_bay'] ?? ''),
             'location_alt' => $this->normalizeString($item['location_alt'] ?? ''),
         ];
+    }
+
+    private function deriveImportRawLocation(array $item): string
+    {
+        $locationAisle = $this->normalizeString($item['location_aisle'] ?? '');
+        $locationShelf = $this->normalizeString($item['location_shelf'] ?? '');
+        $locationBay = $this->normalizeString($item['location_bay'] ?? '');
+
+        if ($locationAisle !== '' || $locationShelf !== '' || $locationBay !== '') {
+            return implode('-', array_values(array_filter([
+                $locationAisle,
+                $locationShelf,
+                $locationBay,
+            ], static fn ($value) => $value !== '')));
+        }
+
+        return $this->normalizeString($item['location_raw'] ?? '');
     }
 
     private function normalizeImportLocation(string $rawLocation, string $alternateLocation): array

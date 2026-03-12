@@ -35,6 +35,7 @@ const resolveApiBaseUrl = () => {
 }
 
 const API_BASE_URL = resolveApiBaseUrl()
+const ERROR_REPORT_PATH = '/audit-logs/errors'
 
 console.log('API Base URL:', API_BASE_URL)
 
@@ -48,6 +49,164 @@ const api = axios.create({
 })
 
 let authRedirecting = false
+let clientErrorLoggingInstalled = false
+
+const resolveErrorReportUrl = () => {
+  const normalizedBaseUrl = normalizeUrl(API_BASE_URL) || '/api'
+  return normalizedBaseUrl.endsWith(ERROR_REPORT_PATH)
+    ? normalizedBaseUrl
+    : `${normalizedBaseUrl}${ERROR_REPORT_PATH}`
+}
+
+const currentRoutePath = () => {
+  if (typeof window === 'undefined') {
+    return '/'
+  }
+
+  return `${window.location.pathname || '/'}${window.location.search || ''}`
+}
+
+const cleanObject = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => entryValue !== null && entryValue !== undefined && entryValue !== '')
+  )
+}
+
+const normalizeErrorMessage = (value) => {
+  if (!value) {
+    return ''
+  }
+
+  if (typeof value === 'string') {
+    return value
+  }
+
+  if (value instanceof Error) {
+    return value.message || value.name || 'Error'
+  }
+
+  if (typeof value === 'object' && typeof value.message === 'string') {
+    return value.message
+  }
+
+  try {
+    return JSON.stringify(value)
+  } catch (error) {
+    return String(value)
+  }
+}
+
+const normalizeErrorStack = (value) => {
+  if (!value) {
+    return null
+  }
+
+  if (value instanceof Error) {
+    return value.stack || null
+  }
+
+  if (typeof value === 'object' && typeof value.stack === 'string') {
+    return value.stack
+  }
+
+  return null
+}
+
+export const reportClientError = async (payload = {}) => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  const message = normalizeErrorMessage(payload.message || payload.error || payload.reason)
+  if (!message) {
+    return
+  }
+
+  const metadata = cleanObject(payload.metadata)
+  const body = cleanObject({
+    source: payload.source || 'frontend',
+    error_kind: payload.error_kind || 'client_error',
+    message,
+    stack_trace: typeof payload.stack_trace === 'string'
+      ? payload.stack_trace
+      : normalizeErrorStack(payload.error || payload.reason || payload.message),
+    status_code: Number.isFinite(Number(payload.status_code)) ? Number(payload.status_code) : undefined,
+    http_method: payload.http_method || 'CLIENT',
+    route_path: payload.route_path || currentRoutePath(),
+    ip_address: payload.ip_address,
+    user_agent: payload.user_agent || (typeof navigator !== 'undefined' ? navigator.userAgent : undefined),
+    file_name: payload.file_name,
+    line_number: payload.line_number,
+    column_number: payload.column_number,
+    status_text: payload.status_text,
+    current_url: payload.current_url || window.location.href,
+    request_url: payload.request_url,
+    api_message: payload.api_message,
+    endpoint: payload.endpoint,
+    reason_type: payload.reason_type,
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined
+  })
+
+  try {
+    await fetch(resolveErrorReportUrl(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      credentials: 'include',
+      keepalive: true,
+      body: JSON.stringify(body)
+    })
+  } catch (reportError) {
+    console.error('[Client Error Report Failed]', reportError)
+  }
+}
+
+export const installGlobalErrorLogging = () => {
+  if (clientErrorLoggingInstalled || typeof window === 'undefined') {
+    return
+  }
+
+  clientErrorLoggingInstalled = true
+
+  window.addEventListener('error', (event) => {
+    const target = event?.target
+    const resourceUrl = target?.currentSrc || target?.src || target?.href || null
+    const isResourceError = !!(target && target !== window && resourceUrl)
+
+    void reportClientError({
+      source: 'frontend',
+      error_kind: isResourceError ? 'resource_error' : 'runtime_error',
+      message: isResourceError
+        ? `Failed to load resource: ${resourceUrl}`
+        : normalizeErrorMessage(event.error || event.message) || 'Unhandled frontend error',
+      stack_trace: event.error?.stack,
+      route_path: currentRoutePath(),
+      file_name: event.filename || undefined,
+      line_number: Number.isFinite(event.lineno) ? event.lineno : undefined,
+      column_number: Number.isFinite(event.colno) ? event.colno : undefined
+    })
+  }, true)
+
+  window.addEventListener('unhandledrejection', (event) => {
+    if (event?.reason?.__pamReported) {
+      return
+    }
+
+    void reportClientError({
+      source: 'frontend',
+      error_kind: 'unhandled_rejection',
+      message: normalizeErrorMessage(event.reason) || 'Unhandled promise rejection',
+      stack_trace: normalizeErrorStack(event.reason),
+      route_path: currentRoutePath(),
+      reason_type: event?.reason?.name || typeof event?.reason
+    })
+  })
+}
 
 const getValidationMessage = (payload) => {
   const errors = payload?.errors
@@ -94,6 +253,7 @@ api.interceptors.response.use(
     return response.data
   },
   (error) => {
+    const requestUrl = error.config?.url || ''
     const validationMessage = getValidationMessage(error.response?.data)
     const message = validationMessage || error.response?.data?.message || error.message || 'An error occurred'
 
@@ -111,16 +271,38 @@ api.interceptors.response.use(
     }
     
     console.error('[API Error]', details)
+
+    error.__pamReported = true
+
+    if (!requestUrl.includes(ERROR_REPORT_PATH)) {
+      void reportClientError({
+        source: 'frontend_api',
+        error_kind: error.code === 'ECONNABORTED'
+          ? 'timeout'
+          : (error.response?.status ? 'api_error' : 'network_error'),
+        message,
+        stack_trace: error.stack,
+        status_code: error.response?.status,
+        status_text: error.response?.statusText,
+        http_method: error.config?.method?.toUpperCase() || 'REQUEST',
+        route_path: currentRoutePath(),
+        request_url: requestUrl,
+        endpoint: requestUrl,
+        api_message: error.response?.data?.message
+      })
+    }
     
     // Log to localStorage for debugging
-    const errorLog = JSON.parse(localStorage.getItem('api_errors') || '[]')
-    errorLog.push({
-      timestamp: new Date().toISOString(),
-      ...details
-    })
-    // Keep only last 50 errors
-    if (errorLog.length > 50) errorLog.shift()
-    localStorage.setItem('api_errors', JSON.stringify(errorLog))
+    if (typeof localStorage !== 'undefined') {
+      const errorLog = JSON.parse(localStorage.getItem('api_errors') || '[]')
+      errorLog.push({
+        timestamp: new Date().toISOString(),
+        ...details
+      })
+      // Keep only last 50 errors
+      if (errorLog.length > 50) errorLog.shift()
+      localStorage.setItem('api_errors', JSON.stringify(errorLog))
+    }
     
     // Redirect to login on 401 (except for auth endpoints)
     if (error.response?.status === 401 && !error.config?.url?.includes('/auth/')) {

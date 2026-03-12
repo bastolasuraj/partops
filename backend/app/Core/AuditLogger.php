@@ -3,6 +3,7 @@
 namespace App\Core;
 
 use App\Models\AuditLog;
+use App\Models\ErrorLog;
 use App\Models\User;
 
 class AuditLogger
@@ -70,6 +71,129 @@ class AuditLogger
             'http_method' => strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET'),
             'route_path' => self::normalizePath($_SERVER['REQUEST_URI'] ?? '/'),
         ]));
+    }
+
+    public static function captureErrorResponse(string $message, int $statusCode, $errors = null, array $context = []): void
+    {
+        if (PHP_SAPI === 'cli') {
+            return;
+        }
+
+        $path = self::normalizePath((string)($context['route_path'] ?? ($_SERVER['REQUEST_URI'] ?? '/')));
+        if (self::shouldSkipErrorLogging($path)) {
+            return;
+        }
+
+        $metadata = $context['metadata'] ?? [];
+        if (!is_array($metadata)) {
+            $metadata = ['details' => self::sanitize($metadata)];
+        }
+
+        if ($errors !== null) {
+            $metadata['errors'] = self::sanitize($errors);
+        }
+
+        $query = self::sanitize($_GET);
+        if ($query !== []) {
+            $metadata['query'] = $query;
+        }
+
+        $origin = $context['origin'] ?? ($_SERVER['HTTP_ORIGIN'] ?? null);
+        if ($origin !== null && $origin !== '') {
+            $metadata['origin'] = $origin;
+        }
+
+        self::recordError([
+            'source' => $context['source'] ?? 'backend',
+            'error_kind' => $context['error_kind'] ?? ($statusCode >= 500 ? 'server_error' : 'request_error'),
+            'message' => $message,
+            'stack_trace' => $context['stack_trace'] ?? null,
+            'status_code' => $statusCode,
+            'http_method' => $context['http_method'] ?? strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET'),
+            'route_path' => $path,
+            'ip_address' => $context['ip_address'] ?? ($_SERVER['REMOTE_ADDR'] ?? null),
+            'user_agent' => $context['user_agent'] ?? ($_SERVER['HTTP_USER_AGENT'] ?? null),
+            'metadata' => $metadata,
+        ]);
+    }
+
+    public static function recordClientError(array $payload): void
+    {
+        if (PHP_SAPI === 'cli') {
+            return;
+        }
+
+        $path = self::normalizePath((string)($payload['route_path'] ?? ($_SERVER['HTTP_REFERER'] ?? ($_SERVER['REQUEST_URI'] ?? '/'))));
+        if (self::shouldSkipErrorLogging($path)) {
+            return;
+        }
+
+        $metadata = $payload['metadata'] ?? [];
+        if (!is_array($metadata)) {
+            $metadata = ['details' => self::sanitize($metadata)];
+        }
+
+        foreach ([
+            'file_name' => 'file_name',
+            'line_number' => 'line_number',
+            'column_number' => 'column_number',
+            'status_text' => 'status_text',
+            'current_url' => 'current_url',
+            'request_url' => 'request_url',
+            'api_message' => 'api_message',
+            'endpoint' => 'endpoint',
+            'reason_type' => 'reason_type',
+        ] as $inputKey => $metadataKey) {
+            if (!array_key_exists($inputKey, $payload)) {
+                continue;
+            }
+
+            $value = self::sanitize($payload[$inputKey]);
+            if ($value !== null && $value !== '') {
+                $metadata[$metadataKey] = $value;
+            }
+        }
+
+        self::recordError([
+            'source' => $payload['source'] ?? 'frontend',
+            'error_kind' => $payload['error_kind'] ?? 'client_error',
+            'message' => $payload['message'] ?? 'Client error recorded',
+            'stack_trace' => $payload['stack_trace'] ?? null,
+            'status_code' => self::normalizeStatusCode($payload['status_code'] ?? null),
+            'http_method' => $payload['http_method'] ?? 'CLIENT',
+            'route_path' => $path,
+            'ip_address' => $payload['ip_address'] ?? ($_SERVER['REMOTE_ADDR'] ?? null),
+            'user_agent' => $payload['user_agent'] ?? ($_SERVER['HTTP_USER_AGENT'] ?? null),
+            'metadata' => $metadata,
+        ]);
+    }
+
+    public static function recordPhpShutdownError(array $error): void
+    {
+        if (PHP_SAPI === 'cli') {
+            return;
+        }
+
+        $fatalTypes = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR];
+        $type = (int)($error['type'] ?? 0);
+        if (!in_array($type, $fatalTypes, true)) {
+            return;
+        }
+
+        self::recordError([
+            'source' => 'backend',
+            'error_kind' => 'fatal_shutdown_error',
+            'message' => (string)($error['message'] ?? 'Fatal PHP shutdown error'),
+            'http_method' => strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET'),
+            'route_path' => self::normalizePath($_SERVER['REQUEST_URI'] ?? '/'),
+            'ip_address' => $_SERVER['REMOTE_ADDR'] ?? null,
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
+            'metadata' => array_filter([
+                'error_type' => $type,
+                'file_name' => $error['file'] ?? null,
+                'line_number' => $error['line'] ?? null,
+            ], static fn ($value) => $value !== null && $value !== ''),
+        ]);
     }
 
     public static function hasRecentLogsAccessVerification(): bool
@@ -196,6 +320,40 @@ class AuditLogger
         }
     }
 
+    private static function recordError(array $entry): void
+    {
+        if (self::$writing) {
+            return;
+        }
+
+        self::$writing = true;
+
+        try {
+            $sessionUser = $_SESSION['user'] ?? [];
+
+            ErrorLog::create([
+                'source' => $entry['source'] ?? 'backend',
+                'error_kind' => $entry['error_kind'] ?? 'application_error',
+                'message' => self::trimText($entry['message'] ?? 'Application error recorded', 65535),
+                'stack_trace' => self::trimText($entry['stack_trace'] ?? null, 65535),
+                'status_code' => self::normalizeStatusCode($entry['status_code'] ?? null),
+                'user_id' => $entry['user_id'] ?? ($sessionUser['id'] ?? null),
+                'username' => $entry['username'] ?? ($sessionUser['username'] ?? null),
+                'display_name' => $entry['display_name'] ?? ($sessionUser['display_name'] ?? null),
+                'user_role' => $entry['user_role'] ?? ($sessionUser['role'] ?? null),
+                'http_method' => strtoupper((string)($entry['http_method'] ?? ($_SERVER['REQUEST_METHOD'] ?? 'GET'))),
+                'route_path' => $entry['route_path'] ?? self::normalizePath($_SERVER['REQUEST_URI'] ?? '/'),
+                'ip_address' => $entry['ip_address'] ?? ($_SERVER['REMOTE_ADDR'] ?? null),
+                'user_agent' => $entry['user_agent'] ?? ($_SERVER['HTTP_USER_AGENT'] ?? null),
+                'metadata' => self::sanitize($entry['metadata'] ?? null),
+            ]);
+        } catch (\Throwable $e) {
+            Logger::warning('Failed to write error log', ['error' => $e->getMessage()]);
+        } finally {
+            self::$writing = false;
+        }
+    }
+
     private static function shouldAutoLog(string $method, string $path): bool
     {
         if ($path === '/' || $path === '/readme.html') {
@@ -217,6 +375,11 @@ class AuditLogger
         }
 
         return true;
+    }
+
+    private static function shouldSkipErrorLogging(string $path): bool
+    {
+        return strpos($path, '/audit-logs/errors') === 0;
     }
 
     private static function normalizePath(string $uri): string
@@ -349,5 +512,40 @@ class AuditLogger
         }
 
         return $value;
+    }
+
+    private static function trimText($value, int $maxLength): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $string = trim((string)$value);
+        if ($string === '') {
+            return null;
+        }
+
+        if (strlen($string) <= $maxLength) {
+            return $string;
+        }
+
+        if ($maxLength <= 3) {
+            return substr($string, 0, $maxLength);
+        }
+
+        return substr($string, 0, $maxLength - 3) . '...';
+    }
+
+    private static function normalizeStatusCode($statusCode): ?int
+    {
+        if ($statusCode === null || $statusCode === '') {
+            return null;
+        }
+
+        if (!is_numeric($statusCode)) {
+            return null;
+        }
+
+        return (int)$statusCode;
     }
 }

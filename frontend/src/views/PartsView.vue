@@ -529,9 +529,9 @@
                     </div>
                   </div>
                   <div class="flex flex-wrap gap-2">
-                    <button type="button" class="btn-outline text-xs" @click="item.decision = 'suggested'">Use Suggestion</button>
+                    <button type="button" class="btn-outline text-xs" @click="acceptSuggestedReviewRow(item.id)">Use Suggestion</button>
                     <button type="button" class="btn-outline text-xs" @click="item.decision = 'edit'">Edit</button>
-                    <button type="button" class="btn-outline text-xs" @click="item.decision = 'skip'">Skip</button>
+                    <button type="button" class="btn-outline text-xs" @click="skipReviewRow(item.id)">Skip</button>
                   </div>
                 </div>
 
@@ -934,24 +934,15 @@ const importNoUploadRows = computed(() => {
     name: item.suggested_item?.name || item.original?.description || '',
     supplier_name: item.suggested_item?.supplier_name || item.original?.supplier_name || '',
     location: item.original?.location || formatImportLocation(item.suggested_item || item) || '',
-    message: (item.issues || []).map(issue => issue.message).join(' | ') || 'Skipped during analysis',
-    remediation: (item.issues || []).map(issue => issue.remediation).join(' | ') || 'Review the row and upload again.'
+    message: item.user_skipped
+      ? 'Skipped by user during review'
+      : ((item.issues || []).map(issue => issue.message).join(' | ') || 'Skipped during analysis'),
+    remediation: item.user_skipped
+      ? 'Edit the row in the review panel and import again if it should be included.'
+      : ((item.issues || []).map(issue => issue.remediation).join(' | ') || 'Review the row and upload again.')
   }))
 
-  const skippedByUser = importReviewItems.value
-    .filter(item => item.decision === 'skip')
-    .map(item => ({
-      sheet: item.sheet,
-      row: item.row,
-      supplier_part_number: item.original?.supplier_part_number || item.suggested_item?.supplier_part_number || '',
-      name: item.suggested_item?.name || item.original?.description || '',
-      supplier_name: item.suggested_item?.supplier_name || item.original?.supplier_name || '',
-      location: formatImportLocation(item.suggested_item || item) || item.original?.location || '',
-      message: 'Skipped by user during review',
-      remediation: 'Edit the row in the review panel and import again if it should be included.'
-    }))
-
-  return [...skippedByAnalysis, ...skippedByUser, ...importErrors.value]
+  return [...skippedByAnalysis, ...importErrors.value]
 })
 
 // Get unique Fowler PNs
@@ -1588,13 +1579,25 @@ const createReviewRowState = (row) => ({
   }
 })
 
+const buildStructuredImportLocationValue = (item = {}) => {
+  const aisle = normalizeString(item.location_aisle)
+  const shelf = normalizeString(item.location_shelf)
+  const bay = normalizeString(item.location_bay)
+
+  if (!aisle && !shelf && !bay) {
+    return ''
+  }
+
+  return [aisle, shelf, bay].filter(Boolean).join('-')
+}
+
 const cloneImportPayload = (item = {}) => ({
   supplier_part_number: normalizeString(item.supplier_part_number),
   name: normalizeString(item.name || item.description),
   description: normalizeString(item.description || item.name),
   supplier_name: normalizeString(item.supplier_name),
   unit_of_measure: normalizeUnitOfMeasure(item.unit_of_measure),
-  location_raw: normalizeString(item.location_raw),
+  location_raw: buildStructuredImportLocationValue(item) || normalizeString(item.location_raw),
   location_aisle: normalizeString(item.location_aisle),
   location_shelf: normalizeString(item.location_shelf),
   location_bay: normalizeString(item.location_bay),
@@ -1606,18 +1609,61 @@ const cloneImportPayload = (item = {}) => ({
   source_row: Math.max(1, Math.round(normalizeNumber(item.source_row || 1)))
 })
 
+const clampImportReviewPage = () => {
+  importReviewPage.value = Math.min(importReviewPage.value, importReviewTotalPages.value)
+}
+
+const clampImportSkippedPage = () => {
+  importSkippedPage.value = Math.min(importSkippedPage.value, importSkippedTotalPages.value)
+}
+
+const moveReviewRowToReady = (row) => ({
+  ...row,
+  status: 'ready',
+  decision: 'suggested'
+})
+
+const moveReviewRowToSkipped = (row) => ({
+  ...row,
+  status: 'skip',
+  decision: 'skip',
+  user_skipped: true
+})
+
+const acceptSuggestedReviewRow = (rowId) => {
+  const index = importReviewItems.value.findIndex(item => item.id === rowId)
+  if (index === -1) return
+
+  const [row] = importReviewItems.value.splice(index, 1)
+  importReadyItems.value.push(moveReviewRowToReady(row))
+  clampImportReviewPage()
+}
+
 const acceptAllSuggestedReviewRows = () => {
-  importReviewItems.value = importReviewItems.value.map(item => ({
-    ...item,
-    decision: 'suggested'
-  }))
+  if (importReviewItems.value.length === 0) return
+
+  importReadyItems.value.push(...importReviewItems.value.map(moveReviewRowToReady))
+  importReviewItems.value = []
+  importReviewPage.value = 1
+}
+
+const skipReviewRow = (rowId) => {
+  const index = importReviewItems.value.findIndex(item => item.id === rowId)
+  if (index === -1) return
+
+  const [row] = importReviewItems.value.splice(index, 1)
+  importSkippedItems.value.push(moveReviewRowToSkipped(row))
+  clampImportReviewPage()
+  clampImportSkippedPage()
 }
 
 const skipAllReviewRows = () => {
-  importReviewItems.value = importReviewItems.value.map(item => ({
-    ...item,
-    decision: 'skip'
-  }))
+  if (importReviewItems.value.length === 0) return
+
+  importSkippedItems.value.push(...importReviewItems.value.map(moveReviewRowToSkipped))
+  importReviewItems.value = []
+  importReviewPage.value = 1
+  clampImportSkippedPage()
 }
 
 const moveSkippedRowToReview = (rowId) => {

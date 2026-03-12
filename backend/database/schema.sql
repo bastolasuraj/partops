@@ -204,6 +204,29 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     INDEX idx_route_created (route_path, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Error Logs Table
+CREATE TABLE IF NOT EXISTS error_logs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    source VARCHAR(50) NOT NULL DEFAULT 'backend',
+    error_kind VARCHAR(100) NOT NULL DEFAULT 'application_error',
+    message TEXT NOT NULL,
+    stack_trace LONGTEXT NULL,
+    status_code INT NULL,
+    user_id INT NULL,
+    username VARCHAR(100) NULL,
+    display_name VARCHAR(255) NULL,
+    user_role VARCHAR(50) NULL,
+    http_method VARCHAR(20) NULL,
+    route_path VARCHAR(255) NULL,
+    ip_address VARCHAR(64) NULL,
+    user_agent VARCHAR(500) NULL,
+    metadata LONGTEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_created (created_at),
+    INDEX idx_source_created (source, created_at),
+    INDEX idx_status_created (status_code, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Insert default admin user (change in production)
 -- Password: PartsAdmin123!
 INSERT INTO users (username, password_hash, display_name, email, role, auth_source, is_active) 

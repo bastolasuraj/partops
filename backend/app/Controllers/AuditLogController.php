@@ -6,6 +6,7 @@ use App\Core\AuditLogger;
 use App\Core\BaseController;
 use App\Core\Response;
 use App\Models\AuditLog;
+use App\Models\ErrorLog;
 
 class AuditLogController extends BaseController
 {
@@ -99,18 +100,58 @@ class AuditLogController extends BaseController
 
         $userLogs = AuditLog::paginateByCategory('user', $userPage, $perPage);
         $actionLogs = AuditLog::paginateByCategory('action', $actionPage, $perPage);
+        $errorLogs = ErrorLog::getRecent();
 
         Response::success([
             'verified_until' => AuditLogger::getLogsAccessVerifiedUntil(),
             'user_logs' => $userLogs['data'],
             'action_logs' => $actionLogs['data'],
+            'error_logs' => $errorLogs,
             'user_pagination' => $userLogs['pagination'],
             'action_pagination' => $actionLogs['pagination'],
+            'error_count' => ErrorLog::countCurrent(),
+            'error_limit' => ErrorLog::getRecentLimit(),
             'per_page' => $perPage,
             'default_per_page' => $defaultPerPage,
             'page_size_options' => $allowedPerPage,
             'retention_limit' => AuditLog::getActiveLogLimit(),
             'archive_file' => AuditLog::getArchiveFileName(),
         ]);
+    }
+
+    public function reportError(): void
+    {
+        $payload = $this->request->all();
+        $message = trim((string)($payload['message'] ?? ''));
+
+        if ($message === '') {
+            Response::error('Error message is required', 422);
+        }
+
+        AuditLogger::recordClientError([
+            'source' => $payload['source'] ?? 'frontend',
+            'error_kind' => $payload['error_kind'] ?? 'client_error',
+            'message' => $message,
+            'stack_trace' => $payload['stack_trace'] ?? null,
+            'status_code' => $payload['status_code'] ?? null,
+            'http_method' => $payload['http_method'] ?? 'CLIENT',
+            'route_path' => $payload['route_path'] ?? null,
+            'ip_address' => $payload['ip_address'] ?? null,
+            'user_agent' => $payload['user_agent'] ?? null,
+            'file_name' => $payload['file_name'] ?? null,
+            'line_number' => $payload['line_number'] ?? null,
+            'column_number' => $payload['column_number'] ?? null,
+            'status_text' => $payload['status_text'] ?? null,
+            'current_url' => $payload['current_url'] ?? null,
+            'request_url' => $payload['request_url'] ?? null,
+            'api_message' => $payload['api_message'] ?? null,
+            'endpoint' => $payload['endpoint'] ?? null,
+            'reason_type' => $payload['reason_type'] ?? null,
+            'metadata' => is_array($payload['metadata'] ?? null) ? $payload['metadata'] : [],
+        ]);
+
+        Response::created([
+            'recorded' => true,
+        ], 'Error recorded');
     }
 }

@@ -20,7 +20,7 @@
         <div class="mobile-pager">
           <button
             type="button"
-            class="mobile-nav-button"
+            class="mobile-nav-button mobile-nav-button-prev"
             :disabled="!previousTab"
             aria-label="Previous section"
             @click="goToPreviousTab"
@@ -30,21 +30,47 @@
             </svg>
           </button>
 
-          <template v-for="(tab, index) in mobilePagerTabs" :key="tab.id">
+          <template v-if="!previousTab && nextTab">
+            <button
+              type="button"
+              class="mobile-pager-link mobile-pager-link-full"
+              @click="goToNextTab"
+            >
+              {{ nextTab.label }}
+            </button>
+          </template>
+          <template v-else-if="previousTab && !nextTab">
+            <button
+              type="button"
+              class="mobile-pager-link mobile-pager-link-full"
+              @click="goToPreviousTab"
+            >
+              {{ previousTab.label }}
+            </button>
+          </template>
+          <template v-else>
             <button
               type="button"
               class="mobile-pager-link"
-              @click="activeTab = tab.id"
+              @click="goToPreviousTab"
             >
-              {{ tab.label }}
+              {{ previousTab?.label || '' }}
             </button>
 
-            <span v-if="index === 0" class="mobile-pager-divider" aria-hidden="true"></span>
+            <span class="mobile-pager-divider" aria-hidden="true"></span>
+
+            <button
+              type="button"
+              class="mobile-pager-link"
+              @click="goToNextTab"
+            >
+              {{ nextTab?.label || '' }}
+            </button>
           </template>
 
           <button
             type="button"
-            class="mobile-nav-button"
+            class="mobile-nav-button mobile-nav-button-next"
             :disabled="!nextTab"
             aria-label="Next section"
             @click="goToNextTab"
@@ -414,20 +440,6 @@ const activeTabIndex = computed(() => tabs.findIndex((tab) => tab.id === activeT
 const activeTabLabel = computed(() => tabs[activeTabIndex.value]?.label || '')
 const previousTab = computed(() => tabs[activeTabIndex.value - 1] || null)
 const nextTab = computed(() => tabs[activeTabIndex.value + 1] || null)
-const mobilePagerTabs = computed(() => {
-  const currentIndex = activeTabIndex.value
-  const lastIndex = tabs.length - 1
-
-  if (currentIndex <= 0) {
-    return tabs.slice(1, 3)
-  }
-
-  if (currentIndex >= lastIndex) {
-    return tabs.slice(Math.max(0, lastIndex - 2), lastIndex)
-  }
-
-  return [tabs[currentIndex - 1], tabs[currentIndex + 1]]
-})
 
 const goToPreviousTab = () => {
   if (activeTabIndex.value <= 0) {
@@ -542,6 +554,14 @@ const goToNextTab = () => {
   cursor: not-allowed;
 }
 
+.mobile-nav-button-prev {
+  grid-column: 1;
+}
+
+.mobile-nav-button-next {
+  grid-column: 5;
+}
+
 .mobile-pager-link {
   background: transparent;
   border: 0;
@@ -563,6 +583,10 @@ const goToNextTab = () => {
 .mobile-pager-link:disabled {
   color: rgba(255, 255, 255, 0.38);
   cursor: default;
+}
+
+.mobile-pager-link-full {
+  grid-column: 2 / 5;
 }
 
 .mobile-pager-divider {

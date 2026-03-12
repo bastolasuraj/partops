@@ -1,7 +1,10 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
+import { installGlobalErrorLogging } from './services/api'
 import './assets/css/main.css'
+
+installGlobalErrorLogging()
 
 const app = createApp(App)
 app.use(router)

@@ -21,8 +21,10 @@ class Response
         ], $statusCode);
     }
     
-    public static function error(string $message, int $statusCode = 400, $errors = null): void
+    public static function error(string $message, int $statusCode = 400, $errors = null, array $errorContext = []): void
     {
+        AuditLogger::captureErrorResponse($message, $statusCode, $errors, $errorContext);
+
         $response = [
             'success' => false,
             'message' => $message,

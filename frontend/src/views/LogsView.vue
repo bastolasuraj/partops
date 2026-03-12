@@ -1,10 +1,10 @@
 <template>
   <div>
     <div class="mb-8 slide-up">
-      <div class="flex items-center justify-between mb-4">
+      <div class="mb-4 flex items-center justify-between">
         <div>
           <h1 class="text-3xl font-bold text-gray-900">Logs</h1>
-          <p class="text-gray-600">Admin-only audit trail for login activity and system actions.</p>
+          <p class="text-gray-600">Admin-only audit trail for login activity, system actions, and recent errors.</p>
         </div>
         <button
           v-if="verified"
@@ -27,7 +27,7 @@
       <div class="card-header">
         <h2 class="text-xl font-semibold text-gray-800">Confirm Admin Password</h2>
       </div>
-      <div class="p-6 space-y-4">
+      <div class="space-y-4 p-6">
         <div class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           This page is hidden from navigation and requires the current admin password before audit records can be viewed.
         </div>
@@ -79,11 +79,16 @@
       <div class="card slide-up mb-6">
         <div class="card-body flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div class="text-sm text-gray-600">
-            Showing {{ currentPagination.from }}-{{ currentPagination.to }} of {{ currentPagination.total }}
-            {{ activeTabLabel.toLowerCase() }}.
+            <template v-if="isErrorsTab">
+              Showing the most recent {{ errorLimit }} errors. Older errors are removed automatically when new ones are recorded.
+            </template>
+            <template v-else>
+              Showing {{ currentPagination.from }}-{{ currentPagination.to }} of {{ currentPagination.total }}
+              {{ activeTabLabel.toLowerCase() }}.
+            </template>
           </div>
 
-          <label class="flex items-center gap-3 text-sm text-gray-700">
+          <label v-if="!isErrorsTab" class="flex items-center gap-3 text-sm text-gray-700">
             <span class="font-semibold text-gray-900">Items per page</span>
             <select v-model.number="pageSize" class="form-input w-24" @change="handlePageSizeChange">
               <option v-for="size in pageSizeOptions" :key="size" :value="size">
@@ -130,12 +135,27 @@
                   <div><span class="font-semibold text-gray-900">How:</span> {{ formatHow(entry) }}</div>
                   <div class="md:col-span-2"><span class="font-semibold text-gray-900">What:</span> {{ formatWhat(entry) }}</div>
                   <div v-if="formatResult(entry)" class="md:col-span-2"><span class="font-semibold text-gray-900">Result:</span> {{ formatResult(entry) }}</div>
+                  <div v-if="isErrorsTab && entry?.metadata?.current_url" class="md:col-span-2">
+                    <span class="font-semibold text-gray-900">Page:</span> {{ entry.metadata.current_url }}
+                  </div>
+                  <div v-if="isErrorsTab && entry?.metadata?.file_name" class="md:col-span-2">
+                    <span class="font-semibold text-gray-900">File:</span> {{ entry.metadata.file_name }}
+                    <span v-if="entry?.metadata?.line_number">
+                      at line {{ entry.metadata.line_number }}
+                      <span v-if="entry?.metadata?.column_number">, column {{ entry.metadata.column_number }}</span>
+                    </span>
+                  </div>
+                </div>
+
+                <div v-if="isErrorsTab && entry.stack_trace" class="mt-4">
+                  <div class="mb-2 text-sm font-semibold text-gray-900">Stack Trace</div>
+                  <pre class="overflow-x-auto rounded-xl bg-gray-950 px-4 py-3 text-xs leading-6 text-gray-100">{{ entry.stack_trace }}</pre>
                 </div>
               </div>
             </details>
           </div>
         </div>
-        <div v-if="currentPagination.total > 0" class="border-t border-gray-100 px-6 py-4">
+        <div v-if="!isErrorsTab && currentPagination.total > 0" class="border-t border-gray-100 px-6 py-4">
           <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div class="text-sm text-gray-600">
               Page {{ currentPagination.page }} of {{ currentPagination.total_pages }}
@@ -184,11 +204,15 @@ const verifiedUntil = ref('')
 const password = ref('')
 const userLogs = ref([])
 const actionLogs = ref([])
+const errorLogs = ref([])
 const activeTab = ref('user')
 const userPage = ref(1)
 const actionPage = ref(1)
 const pageSize = ref(25)
 const pageSizeOptions = ref([10, 25, 50, 100])
+const errorLimit = ref(25)
+const errorCount = ref(0)
+
 const emptyPagination = () => ({
   page: 1,
   per_page: 25,
@@ -197,8 +221,11 @@ const emptyPagination = () => ({
   from: 0,
   to: 0
 })
+
 const userPagination = ref(emptyPagination())
 const actionPagination = ref(emptyPagination())
+
+const isErrorsTab = computed(() => activeTab.value === 'errors')
 
 const tabs = computed(() => ([
   {
@@ -212,12 +239,57 @@ const tabs = computed(() => ([
     label: 'Logs',
     count: actionPagination.value.total,
     activeClass: 'bg-green-600 text-white shadow-sm'
+  },
+  {
+    key: 'errors',
+    label: 'Errors',
+    count: errorCount.value,
+    activeClass: 'bg-red-600 text-white shadow-sm'
   }
 ]))
 
-const currentLogs = computed(() => activeTab.value === 'user' ? userLogs.value : actionLogs.value)
-const currentPagination = computed(() => activeTab.value === 'user' ? userPagination.value : actionPagination.value)
-const activeTabLabel = computed(() => activeTab.value === 'user' ? 'User Activity' : 'Logs')
+const currentLogs = computed(() => {
+  if (activeTab.value === 'user') {
+    return userLogs.value
+  }
+
+  if (activeTab.value === 'errors') {
+    return errorLogs.value
+  }
+
+  return actionLogs.value
+})
+
+const currentPagination = computed(() => {
+  if (activeTab.value === 'user') {
+    return userPagination.value
+  }
+
+  if (activeTab.value === 'errors') {
+    return {
+      page: 1,
+      per_page: errorLimit.value,
+      total: errorCount.value,
+      total_pages: 1,
+      from: errorLogs.value.length > 0 ? 1 : 0,
+      to: errorLogs.value.length
+    }
+  }
+
+  return actionPagination.value
+})
+
+const activeTabLabel = computed(() => {
+  if (activeTab.value === 'user') {
+    return 'User Activity'
+  }
+
+  if (activeTab.value === 'errors') {
+    return 'Errors'
+  }
+
+  return 'Logs'
+})
 
 const loadAccessStatus = async () => {
   accessLoading.value = true
@@ -246,10 +318,14 @@ const loadLogs = async () => {
       user_page: userPage.value,
       action_page: actionPage.value
     })
+
     userLogs.value = Array.isArray(response?.data?.user_logs) ? response.data.user_logs : []
     actionLogs.value = Array.isArray(response?.data?.action_logs) ? response.data.action_logs : []
+    errorLogs.value = Array.isArray(response?.data?.error_logs) ? response.data.error_logs : []
     userPagination.value = normalizePagination(response?.data?.user_pagination, pageSize.value)
     actionPagination.value = normalizePagination(response?.data?.action_pagination, pageSize.value)
+    errorLimit.value = Number(response?.data?.error_limit) > 0 ? Number(response.data.error_limit) : errorLimit.value
+    errorCount.value = Number(response?.data?.error_count) >= 0 ? Number(response.data.error_count) : errorLogs.value.length
     pageSizeOptions.value = Array.isArray(response?.data?.page_size_options) && response.data.page_size_options.length > 0
       ? response.data.page_size_options
       : [10, 25, 50, 100]
@@ -297,7 +373,7 @@ const handlePageSizeChange = async () => {
 }
 
 const changePage = async (nextPage) => {
-  if (logsLoading.value) {
+  if (logsLoading.value || isErrorsTab.value) {
     return
   }
 
@@ -368,6 +444,13 @@ const formatDateForSentence = (value) => {
   })
 }
 
+const humanize = (value) => String(value || '')
+  .replace(/[_-]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
+
+const titleCase = (value) => humanize(value).replace(/\b\w/g, (character) => character.toUpperCase())
+
 const formatOutcome = (value) => value === 'failure' ? 'Failure' : 'Success'
 
 const outcomeClass = (value) => {
@@ -386,11 +469,40 @@ const formatWhere = (entry) => {
   return [entry?.route_path, entry?.ip_address].filter(Boolean).join(' | ') || '-'
 }
 
+const formatErrorSource = (entry) => {
+  if (entry?.source === 'frontend_api') {
+    return 'frontend API error'
+  }
+
+  if (entry?.source === 'frontend') {
+    return 'frontend error'
+  }
+
+  if (entry?.source === 'backend') {
+    return 'backend error'
+  }
+
+  const label = humanize(entry?.source || 'system')
+  return label ? `${label} error` : 'system error'
+}
+
 const formatHow = (entry) => {
+  if (isErrorsTab.value) {
+    return [
+      entry?.http_method,
+      titleCase(entry?.error_kind),
+      titleCase(entry?.source === 'frontend_api' ? 'frontend api' : entry?.source)
+    ].filter(Boolean).join(' | ') || '-'
+  }
+
   return [entry?.http_method, entry?.auth_type, entry?.origin].filter(Boolean).join(' | ') || '-'
 }
 
 const formatWhat = (entry) => {
+  if (isErrorsTab.value) {
+    return entry?.message || '-'
+  }
+
   const parts = []
 
   if (entry?.resource_type) {
@@ -415,10 +527,33 @@ const formatActionPhrase = (entry) => {
 }
 
 const formatSummary = (entry) => {
+  if (isErrorsTab.value) {
+    const location = entry?.route_path || 'unknown route'
+    return `${formatWho(entry)} hit a ${formatErrorSource(entry)} on ${location} on ${formatDateForSentence(entry.created_at)}.`
+  }
+
   return `${formatWho(entry)} ${formatActionPhrase(entry)} on ${formatDateForSentence(entry.created_at)}.`
 }
 
 const formatResult = (entry) => {
+  if (isErrorsTab.value) {
+    const parts = []
+
+    if (entry?.status_code) {
+      parts.push(`HTTP ${entry.status_code}`)
+    }
+
+    if (entry?.error_kind) {
+      parts.push(titleCase(entry.error_kind))
+    }
+
+    if (entry?.source) {
+      parts.push(titleCase(entry.source === 'frontend_api' ? 'frontend api' : entry.source))
+    }
+
+    return parts.join(' | ')
+  }
+
   const metadata = entry?.metadata
   if (!metadata || typeof metadata !== 'object') {
     return ''
