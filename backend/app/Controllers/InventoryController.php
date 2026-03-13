@@ -25,6 +25,7 @@ class InventoryController extends BaseController
     public function __construct()
     {
         parent::__construct();
+        $this->requireAuth();
         $this->part = new Part();
         $this->transaction = new InventoryTransaction();
         $this->locationLevel = new InventoryLocationLevel();

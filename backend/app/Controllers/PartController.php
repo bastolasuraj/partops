@@ -18,6 +18,7 @@ class PartController extends BaseController
     public function __construct()
     {
         parent::__construct();
+        $this->requireAuth();
         $this->part = new Part();
         $this->supplier = new Supplier();
         $this->transaction = new InventoryTransaction();

@@ -10,25 +10,6 @@ use App\Models\ErrorLog;
 
 class AuditLogController extends BaseController
 {
-    private function requireAuth(): void
-    {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-
-        if (!isset($_SESSION['user'])) {
-            Response::error('Not authenticated', 401);
-        }
-    }
-
-    private function requireAdmin(): void
-    {
-        $this->requireAuth();
-
-        if (($_SESSION['user']['role'] ?? '') !== 'admin') {
-            Response::error('Forbidden', 403);
-        }
-    }
 
     private function requireLogsAccess(): void
     {

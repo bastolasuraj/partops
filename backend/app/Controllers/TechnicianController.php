@@ -12,6 +12,7 @@ class TechnicianController extends BaseController
     public function __construct()
     {
         parent::__construct();
+        $this->requireAuth();
         $this->technician = new Technician();
     }
     

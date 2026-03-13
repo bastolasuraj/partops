@@ -12,6 +12,7 @@ class WorkOrderController extends BaseController
     public function __construct()
     {
         parent::__construct();
+        $this->requireAuth();
         $this->workOrder = new WorkOrder();
     }
     

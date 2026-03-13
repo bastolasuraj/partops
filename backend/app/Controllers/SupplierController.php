@@ -12,6 +12,7 @@ class SupplierController extends BaseController
     public function __construct()
     {
         parent::__construct();
+        $this->requireAuth();
         $this->supplier = new Supplier();
     }
     

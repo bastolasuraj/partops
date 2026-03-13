@@ -12,6 +12,7 @@ class UnitController extends BaseController
     public function __construct()
     {
         parent::__construct();
+        $this->requireAuth();
         $this->unit = new Unit();
     }
     

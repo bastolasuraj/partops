@@ -29,26 +29,6 @@ class SettingsController extends BaseController
         $this->settings = new Setting();
     }
 
-    private function requireAuth(): void
-    {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-
-        if (!isset($_SESSION['user'])) {
-            Response::error('Not authenticated', 401);
-        }
-    }
-
-    private function requireAdmin(): void
-    {
-        $this->requireAuth();
-
-        $role = $_SESSION['user']['role'] ?? '';
-        if ($role !== 'admin') {
-            Response::error('Forbidden', 403);
-        }
-    }
 
     public function show(): void
     {

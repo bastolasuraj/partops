@@ -4,10 +4,36 @@ namespace App\Core;
 abstract class BaseController
 {
     protected Request $request;
-    
+
     public function __construct()
     {
         $this->request = new Request();
+    }
+
+    protected function requireAuth(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+
+        if (!isset($_SESSION['user'])) {
+            Response::error('Not authenticated', 401);
+        }
+
+        if (isset($_SESSION['expires_at']) && time() > $_SESSION['expires_at']) {
+            $_SESSION = [];
+            session_destroy();
+            Response::error('Session expired', 401);
+        }
+    }
+
+    protected function requireAdmin(): void
+    {
+        $this->requireAuth();
+
+        if (($_SESSION['user']['role'] ?? '') !== 'admin') {
+            Response::error('Forbidden', 403);
+        }
     }
     
     protected function validate(array $rules): array

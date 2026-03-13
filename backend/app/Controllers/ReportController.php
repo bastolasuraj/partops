@@ -247,16 +247,6 @@ class ReportController extends BaseController
         exit;
     }
 
-    private function requireAuth(): void
-    {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-
-        if (!isset($_SESSION['user'])) {
-            Response::error('Not authenticated', 401);
-        }
-    }
 
     private function resolveDateRange(): array
     {

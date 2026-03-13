@@ -18,6 +18,7 @@ class VendorReturnController extends BaseController
     public function __construct()
     {
         parent::__construct();
+        $this->requireAuth();
         $this->vendorReturn = new VendorReturn();
         $this->part = new Part();
         $this->transaction = new InventoryTransaction();

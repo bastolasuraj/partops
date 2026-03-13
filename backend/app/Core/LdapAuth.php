@@ -278,7 +278,9 @@ class LdapAuth
         $count = $groups['count'] ?? 0;
         
         for ($i = 0; $i < $count; $i++) {
-            if (stripos($groups[$i], $requiredGroup) !== false) {
+            // Exact case-insensitive DN match — substring match would allow
+            // CN=PAMAdminExtended to satisfy a CN=PAMAdmin requirement.
+            if (strcasecmp(trim($groups[$i]), trim($requiredGroup)) === 0) {
                 return true;
             }
         }
