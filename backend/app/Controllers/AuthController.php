@@ -214,12 +214,24 @@ class AuthController extends BaseController
             'auth_type' => $authType,
         ]);
         
-        // Destroy session
+        // Destroy session and expire the session cookie on the client.
         $_SESSION = [];
+        if (ini_get('session.use_cookies')) {
+            $params = session_get_cookie_params();
+            setcookie(
+                session_name(),
+                '',
+                time() - 42000,
+                $params['path'] ?? '/',
+                $params['domain'] ?? '',
+                (bool)($params['secure'] ?? false),
+                (bool)($params['httponly'] ?? true)
+            );
+        }
         session_destroy();
-        
+
         Logger::info('User logged out', ['username' => $username]);
-        
+
         Response::success(['message' => 'Logout successful']);
     }
     
@@ -245,8 +257,14 @@ class AuthController extends BaseController
             return;
         }
         
+        // Issue a CSRF token bound to this session (generate once, reuse).
+        if (empty($_SESSION['csrf_token'])) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        }
+
         Response::success([
-            'user' => $_SESSION['user']
+            'user'       => $_SESSION['user'],
+            'csrf_token' => $_SESSION['csrf_token'],
         ]);
     }
     

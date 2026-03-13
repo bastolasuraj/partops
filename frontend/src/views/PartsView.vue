@@ -435,11 +435,21 @@
               <p v-if="importParseError" class="text-xs text-red-600 mt-1">{{ importParseError }}</p>
             </div>
 
-            <div v-if="importParsing || importAnalyzing || importLoading" class="flex items-center gap-2 text-sm text-gray-600">
+            <div v-if="importParsing || importAnalyzing" class="flex items-center gap-2 text-sm text-gray-600">
               <span class="spinner w-4 h-4"></span>
               <span v-if="importParsing">Parsing spreadsheet...</span>
               <span v-else-if="importAnalyzing">Analyzing rows and preparing review buckets...</span>
-              <span v-else>Importing approved rows...</span>
+            </div>
+
+            <div v-if="importLoading" class="space-y-2">
+              <div class="flex justify-between text-sm text-gray-700 font-medium">
+                <span>Uploading...</span>
+                <span>{{ importProgressDone }} / {{ importProgressTotal }} uploaded</span>
+              </div>
+              <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                <div class="bg-blue-600 h-3 rounded-full transition-all duration-300" :style="{ width: importProgress + '%' }"></div>
+              </div>
+              <div class="text-right text-xs text-gray-500">{{ importProgress }}%</div>
             </div>
 
             <div v-if="importSummary" class="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -668,8 +678,7 @@
             <button v-if="importNoUploadRows.length" @click="downloadNoUploadReport" class="btn-outline">Download No Uploads</button>
             <button @click="closeImportModal" class="btn-outline">Close</button>
             <button @click="submitBulkImport" :disabled="importSelectedCount === 0 || importParsing || importAnalyzing || importLoading" class="btn-primary">
-              <span v-if="importLoading" class="spinner w-4 h-4"></span>
-              <span v-else>Import {{ importSelectedCount }} Selected</span>
+              Import {{ importSelectedCount }} Selected
             </button>
           </div>
         </div>
@@ -811,6 +820,9 @@ const importItems = ref([])
 const importParsing = ref(false)
 const importAnalyzing = ref(false)
 const importLoading = ref(false)
+const importProgress = ref(0)
+const importProgressDone = ref(0)
+const importProgressTotal = ref(0)
 const importParseError = ref('')
 const importStats = ref(null)
 const importSummary = ref(null)
@@ -1434,6 +1446,9 @@ const resetImportState = () => {
   importParsing.value = false
   importAnalyzing.value = false
   importLoading.value = false
+  importProgress.value = 0
+  importProgressDone.value = 0
+  importProgressTotal.value = 0
   importParseError.value = ''
   importStats.value = null
   importSummary.value = null
@@ -1503,19 +1518,42 @@ const handleImportFile = async (event) => {
 const submitBulkImport = async () => {
   if (importSelectedCount.value === 0) return
 
+  const payload = [
+    ...importReadyItems.value.map(item => cloneImportPayload(item.suggested_item)),
+    ...importReviewItems.value
+      .filter(item => item.decision !== 'skip')
+      .map(item => cloneImportPayload(item.decision === 'edit' ? item.custom_item : item.suggested_item))
+  ]
+
+  const chunkSize = 25
+  const total = payload.length
+  importLoading.value = true
+  importProgressTotal.value = total
+  importProgressDone.value = 0
+  importProgress.value = 0
+
+  const accStats = { processed: 0, created: 0, existing_updated: 0, master_only_created: 0, unchanged: 0, skipped: 0, errors: 0, suppliers_created: 0 }
+  const accErrors = []
+
   try {
-    importLoading.value = true
-    const payload = [
-      ...importReadyItems.value.map(item => cloneImportPayload(item.suggested_item)),
-      ...importReviewItems.value
-        .filter(item => item.decision !== 'skip')
-        .map(item => cloneImportPayload(item.decision === 'edit' ? item.custom_item : item.suggested_item))
-    ]
-    const response = await partsApi.bulkImport(payload)
-    importStats.value = response.data?.stats || null
-    importErrors.value = Array.isArray(response.data?.no_upload_items)
-      ? response.data.no_upload_items
-      : (Array.isArray(response.data?.errors) ? response.data.errors : [])
+    for (let i = 0; i < total; i += chunkSize) {
+      const chunk = payload.slice(i, i + chunkSize)
+      const response = await partsApi.bulkImport(chunk)
+      const stats = response.data?.stats || {}
+      for (const key of Object.keys(accStats)) {
+        accStats[key] += stats[key] || 0
+      }
+      const chunkErrors = Array.isArray(response.data?.no_upload_items)
+        ? response.data.no_upload_items
+        : (Array.isArray(response.data?.errors) ? response.data.errors : [])
+      accErrors.push(...chunkErrors)
+
+      importProgressDone.value = Math.min(i + chunkSize, total)
+      importProgress.value = Math.round((importProgressDone.value / total) * 100)
+    }
+
+    importStats.value = accStats
+    importErrors.value = accErrors
     showToast('Success', 'Bulk import completed')
     fetchParts()
   } catch (error) {

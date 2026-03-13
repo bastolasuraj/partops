@@ -121,8 +121,14 @@ class AuditLogController extends BaseController
 
     public function reportError(): void
     {
+        $this->requireAuth();
+
         $payload = $this->request->all();
         $message = trim((string)($payload['message'] ?? ''));
+
+        // Limit payload sizes to prevent log flooding / DB bloat.
+        $message    = mb_substr($message, 0, 2000);
+        $stackTrace = mb_substr((string)($payload['stack_trace'] ?? ''), 0, 5000);
 
         if ($message === '') {
             Response::error('Error message is required', 422);
@@ -132,7 +138,7 @@ class AuditLogController extends BaseController
             'source' => $payload['source'] ?? 'frontend',
             'error_kind' => $payload['error_kind'] ?? 'client_error',
             'message' => $message,
-            'stack_trace' => $payload['stack_trace'] ?? null,
+            'stack_trace' => $stackTrace !== '' ? $stackTrace : null,
             'status_code' => $payload['status_code'] ?? null,
             'http_method' => $payload['http_method'] ?? 'CLIENT',
             'route_path' => $payload['route_path'] ?? null,

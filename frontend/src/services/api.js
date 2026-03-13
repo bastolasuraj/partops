@@ -35,6 +35,11 @@ const api = axios.create({
 let authRedirecting = false
 let clientErrorLoggingInstalled = false
 
+// CSRF token — stored in memory only (never localStorage).
+let _csrfToken = ''
+export const setCsrfToken = (token) => { _csrfToken = token || '' }
+export const getCsrfToken = () => _csrfToken
+
 const resolveErrorReportUrl = () => {
   const normalizedBaseUrl = normalizeUrl(API_BASE_URL) || '/api'
   return normalizedBaseUrl.endsWith(ERROR_REPORT_PATH)
@@ -136,11 +141,11 @@ export const reportClientError = async (payload = {}) => {
   })
 
   try {
+    const errorHeaders = { 'Content-Type': 'application/json' }
+    if (_csrfToken) errorHeaders['X-CSRF-Token'] = _csrfToken
     await fetch(resolveErrorReportUrl(), {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: errorHeaders,
       credentials: 'include',
       keepalive: true,
       body: JSON.stringify(body)
@@ -207,7 +212,7 @@ const getValidationMessage = (payload) => {
   return null
 }
 
-// Request interceptor for logging
+// Request interceptor — attach CSRF token for mutating requests.
 api.interceptors.request.use(
   (config) => {
     if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
@@ -219,6 +224,11 @@ api.interceptors.request.use(
         delete config.headers['Content-Type']
         delete config.headers['content-type']
       }
+    }
+
+    const method = (config.method || '').toLowerCase()
+    if (['post', 'put', 'patch', 'delete'].includes(method) && _csrfToken) {
+      config.headers['X-CSRF-Token'] = _csrfToken
     }
 
     return config

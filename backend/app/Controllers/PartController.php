@@ -14,6 +14,7 @@ class PartController extends BaseController
     private Supplier $supplier;
     private InventoryTransaction $transaction;
     private InventoryLocationLevel $locationLevel;
+    private int $importUnknownSeq = 10000;
     public function __construct()
     {
         parent::__construct();
@@ -244,6 +245,7 @@ class PartController extends BaseController
 
     public function analyzeBulkImport(): void
     {
+        set_time_limit(300);
         $items = $this->request->get('items', []);
         if (!is_array($items)) {
             Response::error('items must be an array', 400);
@@ -254,6 +256,7 @@ class PartController extends BaseController
 
     public function bulkImport(): void
     {
+        set_time_limit(300);
         $items = $this->request->get('items', []);
         if (!is_array($items)) {
             Response::error('items must be an array', 400);
@@ -335,7 +338,7 @@ class PartController extends BaseController
             $item = $row['suggested_item'] ?? [];
             $supplierPartNumber = $this->normalizeString($item['supplier_part_number'] ?? '');
 
-            if (($row['status'] ?? 'ready') === 'skip' || $supplierPartNumber === '') {
+            if (($row['status'] ?? 'ready') === 'skip') {
                 $stats['skipped']++;
                 foreach ($this->collectBlockingImportIssues($row) as $issue) {
                     $errors[] = $this->buildImportErrorItem($row, $issue);
@@ -466,6 +469,11 @@ class PartController extends BaseController
         ];
     }
 
+    private function nextUnknownTag(): string
+    {
+        return str_pad((string)$this->importUnknownSeq++, 5, '0', STR_PAD_LEFT);
+    }
+
     private function buildImportAnalysisRow(array $item, int $index): array
     {
         $sheet = $this->normalizeString($item['source_sheet'] ?? $item['sheet'] ?? 'Sheet1');
@@ -522,25 +530,19 @@ class PartController extends BaseController
         ];
 
         if ($rawSupplierPartNumber === '') {
-            $this->recordImportIssue(
-                $row,
-                'missing_part_number',
-                'supplier_part_number',
-                'error',
-                'Supplier PN is required.',
-                'Add a Supplier/Vendor PN.'
-            );
+            $generated = 'UNKNOWN_' . $this->nextUnknownTag();
+            $row['suggested_item']['supplier_part_number'] = $generated;
+            $this->recordImportModification($row, 'supplier_part_number', '', $generated, 'Supplier PN was missing; auto-generated placeholder.');
+            $this->recordImportIssue($row, 'missing_part_number_autofilled', 'supplier_part_number', 'warning', 'Supplier PN was missing and has been auto-filled.', 'Review or update the generated supplier part number.');
+            $rawSupplierPartNumber = $generated;
         }
 
         if ($rawManufacturer === '') {
-            $this->recordImportIssue(
-                $row,
-                'missing_manufacturer',
-                'supplier_name',
-                'error',
-                'Manufacturer is required.',
-                'Add manufacturer.'
-            );
+            $generated = 'Unknown Manufacturer_' . $this->nextUnknownTag();
+            $row['suggested_item']['supplier_name'] = $generated;
+            $this->recordImportModification($row, 'supplier_name', '', $generated, 'Manufacturer was missing; auto-generated placeholder.');
+            $this->recordImportIssue($row, 'missing_manufacturer_autofilled', 'supplier_name', 'warning', 'Manufacturer was missing and has been auto-filled.', 'Review or update the generated manufacturer name.');
+            $rawManufacturer = $generated;
         }
 
         if ($rawDescription === '' && $rawManufacturer !== '') {
@@ -566,41 +568,44 @@ class PartController extends BaseController
 
         $location = $this->normalizeImportLocation($rawLocation, $rawAlternateLocation);
         if ($location['missing']) {
+            $generatedLoc = 'UNKNOWN_' . $this->nextUnknownTag();
+            $location = [
+                'missing' => false,
+                'location_raw' => '',
+                'location_aisle' => '',
+                'location_shelf' => '',
+                'location_bay' => '',
+                'location_alt' => $generatedLoc,
+                'modifications' => [],
+            ];
+            $this->recordImportModification($row, 'location', '', $generatedLoc, 'Location was missing; auto-generated placeholder.');
+            $this->recordImportIssue($row, 'missing_location_autofilled', 'location', 'warning', 'Location was missing and has been auto-filled.', 'Review or update the generated location.');
+        }
+        $row['suggested_item']['location_raw'] = $location['location_raw'];
+        $row['suggested_item']['location_aisle'] = $location['location_aisle'];
+        $row['suggested_item']['location_shelf'] = $location['location_shelf'];
+        $row['suggested_item']['location_bay'] = $location['location_bay'];
+        $row['suggested_item']['location_alt'] = $location['location_alt'];
+
+        foreach ($location['modifications'] as $modification) {
+            $this->recordImportModification(
+                $row,
+                'location',
+                $modification['from'],
+                $modification['to'],
+                $modification['reason']
+            );
+        }
+
+        if (!empty($location['modifications'])) {
             $this->recordImportIssue(
                 $row,
-                'missing_location',
+                'location_cleaned',
                 'location',
-                'error',
-                'Location is required.',
-                'Provide location value.'
+                'warning',
+                'Location was cleaned to match aisle-shelf-bay format.',
+                'Review the suggested location and either accept it, edit it, or skip the row.'
             );
-        } else {
-            $row['suggested_item']['location_raw'] = $location['location_raw'];
-            $row['suggested_item']['location_aisle'] = $location['location_aisle'];
-            $row['suggested_item']['location_shelf'] = $location['location_shelf'];
-            $row['suggested_item']['location_bay'] = $location['location_bay'];
-            $row['suggested_item']['location_alt'] = $location['location_alt'];
-
-            foreach ($location['modifications'] as $modification) {
-                $this->recordImportModification(
-                    $row,
-                    'location',
-                    $modification['from'],
-                    $modification['to'],
-                    $modification['reason']
-                );
-            }
-
-            if (!empty($location['modifications'])) {
-                $this->recordImportIssue(
-                    $row,
-                    'location_cleaned',
-                    'location',
-                    'warning',
-                    'Location was cleaned to match aisle-shelf-bay format.',
-                    'Review the suggested location and either accept it, edit it, or skip the row.'
-                );
-            }
         }
 
         $quantityExplicitZero = $this->isExplicitZeroImportValue($rawQuantity, $quantity);

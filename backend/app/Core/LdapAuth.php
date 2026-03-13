@@ -133,11 +133,8 @@ class LdapAuth
      */
     private function findUserDn(string $username): string|false
     {
-        Logger::info('Finding user DN', [
-            'username' => $username,
-            'base_dn' => $this->config['base_dn'],
-            'host' => $this->config['host']
-        ]);
+        $isDebug = filter_var(getenv('APP_DEBUG') ?: 'false', FILTER_VALIDATE_BOOLEAN);
+        Logger::info('Finding user DN', $isDebug ? ['username' => $username] : []);
         
         // If bind credentials provided, use them for search
         if (!empty($this->config['bind_dn'])) {
@@ -151,20 +148,22 @@ class LdapAuth
             if (!@ldap_bind($this->connection)) {
                 // If anonymous bind fails, try to construct DN directly
                 $upn = $this->constructUserDn($username);
-                Logger::info('Anonymous bind failed, using UPN', ['upn' => $upn]);
+                Logger::info('Anonymous bind failed, using UPN');
                 return $upn;
             }
             Logger::info('Anonymous bind successful');
         }
         
-        // Search for user
-        $searchAttr = $this->config['user_search_attribute'];
-        $filter = "(&{$this->config['user_filter']}({$searchAttr}={$username}))";
-        
-        Logger::info('Searching for user', [
-            'filter' => $filter,
-            'base_dn' => $this->config['base_dn']
-        ]);
+        // Search for user — escape username to prevent LDAP injection.
+        $allowedSearchAttrs = ['sAMAccountName', 'userPrincipalName', 'uid', 'mail'];
+        $searchAttr = in_array($this->config['user_search_attribute'], $allowedSearchAttrs, true)
+            ? $this->config['user_search_attribute']
+            : 'sAMAccountName';
+        $safeUsername = ldap_escape($username, '', LDAP_ESCAPE_FILTER);
+        $filter = "(&{$this->config['user_filter']}({$searchAttr}={$safeUsername}))";
+
+        $isDebug = filter_var(getenv('APP_DEBUG') ?: 'false', FILTER_VALIDATE_BOOLEAN);
+        Logger::info('Searching for user', $isDebug ? ['filter' => $filter, 'base_dn' => $this->config['base_dn']] : []);
         
         $search = @ldap_search(
             $this->connection,
@@ -182,14 +181,16 @@ class LdapAuth
         $entries = ldap_get_entries($this->connection, $search);
         
         Logger::info('Search results', ['count' => $entries['count']]);
-        
+
         if ($entries['count'] === 0) {
             Logger::warning('No users found in search, falling back to UPN');
-            // Fallback to UPN
             return $this->constructUserDn($username);
         }
-        
-        Logger::info('User found', ['dn' => $entries[0]['dn']]);
+
+        // Only log the DN in debug mode — it exposes OU structure.
+        if ($isDebug) {
+            Logger::info('User found', ['dn' => $entries[0]['dn']]);
+        }
         return $entries[0]['dn'];
     }
     
@@ -216,8 +217,12 @@ class LdapAuth
     {
         // If userDn is in UPN format (contains @), search for the user
         if (strpos($userDn, '@') !== false) {
-            $searchAttr = $this->config['user_search_attribute'];
-            $filter = "(&{$this->config['user_filter']}({$searchAttr}={$username}))";
+            $allowedSearchAttrs = ['sAMAccountName', 'userPrincipalName', 'uid', 'mail'];
+            $searchAttr = in_array($this->config['user_search_attribute'], $allowedSearchAttrs, true)
+                ? $this->config['user_search_attribute']
+                : 'sAMAccountName';
+            $safeUsername = ldap_escape($username, '', LDAP_ESCAPE_FILTER);
+            $filter = "(&{$this->config['user_filter']}({$searchAttr}={$safeUsername}))";
             
             $search = @ldap_search(
                 $this->connection,

@@ -117,6 +117,10 @@ class SettingsController extends BaseController
 
     public function truncateData(): void
     {
+        // Data truncation is disabled in production.
+        Response::error('Data truncation is disabled', 403);
+
+        /* --- DISABLED ---
         $this->requireAdmin();
 
         $appEnv = strtolower(trim((string)(getenv('APP_ENV') ?: 'production')));
@@ -213,6 +217,7 @@ class SettingsController extends BaseController
             'truncated_tables' => $truncatedTables,
             'count' => count($truncatedTables),
         ], 'Data truncation completed');
+        --- DISABLED --- */
     }
 
     public function databaseTables(): void

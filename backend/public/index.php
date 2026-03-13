@@ -3,6 +3,26 @@
  * PAM API - Entry Point (v2)
  */
 
+// Load .env into environment so getenv() works everywhere
+(static function (): void {
+    $envFile = __DIR__ . '/../.env';
+    if (!file_exists($envFile)) {
+        return;
+    }
+    foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+        $line = trim($line);
+        if ($line === '' || $line[0] === '#' || strpos($line, '=') === false) {
+            continue;
+        }
+        [$key, $value] = explode('=', $line, 2);
+        $key = trim($key);
+        $value = trim($value);
+        if ($key !== '' && getenv($key) === false) {
+            putenv("{$key}={$value}");
+        }
+    }
+})();
+
 // Error reporting: never display errors to users; always log them.
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
@@ -45,9 +65,12 @@ spl_autoload_register(function ($class) {
 // Load configuration
 $appConfig = require __DIR__ . '/../config/app.php';
 
-// CORS Headers (must be set before any output)
-if (isset($_SERVER['HTTP_ORIGIN'])) {
-    header("Access-Control-Allow-Origin: {$_SERVER['HTTP_ORIGIN']}");
+// CORS — only reflect origin if it is in the configured allowlist.
+$allowedOrigins = array_filter(array_map('trim', explode(',', getenv('CORS_ALLOWED_ORIGINS') ?: '')));
+$requestOrigin  = $_SERVER['HTTP_ORIGIN'] ?? '';
+if ($requestOrigin !== '' && in_array($requestOrigin, $allowedOrigins, true)) {
+    header("Access-Control-Allow-Origin: {$requestOrigin}");
+    header('Vary: Origin');
     header('Access-Control-Allow-Credentials: true');
     header('Access-Control-Max-Age: 86400');
 }
@@ -57,14 +80,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
         header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
     }
     if (isset($_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS'])) {
-        header("Access-Control-Allow-Headers: {$_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']}");
+        header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept, Origin, X-CSRF-Token');
     }
     http_response_code(200);
     exit(0);
 }
 
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept, Origin');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept, Origin, X-CSRF-Token');
 
 use App\Core\Router;
 use App\Core\Response;
@@ -184,6 +207,17 @@ $router->get('/audit-logs',                [AuditLogController::class, 'index'])
 $router->get('/audit-logs/access-status',  [AuditLogController::class, 'accessStatus']);
 $router->post('/audit-logs/confirm-access',[AuditLogController::class, 'confirmAccess']);
 $router->post('/audit-logs/errors',        [AuditLogController::class, 'reportError']);
+
+// CSRF — validate token for all mutating requests made by authenticated sessions.
+// Login/check are pre-auth so they are naturally exempt (no session user yet).
+$csrfMethod = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+if (in_array($csrfMethod, ['POST', 'PUT', 'PATCH', 'DELETE'], true) && isset($_SESSION['user'])) {
+    $csrfToken    = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    $csrfExpected = $_SESSION['csrf_token'] ?? '';
+    if ($csrfExpected === '' || !hash_equals($csrfExpected, $csrfToken)) {
+        Response::error('CSRF token mismatch', 419);
+    }
+}
 
 // Dispatch
 try {

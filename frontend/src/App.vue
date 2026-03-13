@@ -659,7 +659,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useToast } from '@/composables/useToast'
-import { authApi } from '@/services/api'
+import { authApi, setCsrfToken } from '@/services/api'
 import { clearAuthCache } from '@/router/index'
 import { useSettings } from '@/composables/useSettings'
 
@@ -730,6 +730,7 @@ const loadCurrentUser = async () => {
   try {
     const response = await authApi.me()
     currentUser.value = response.data.user
+    setCsrfToken(response.data.csrf_token)
   } catch (error) {
     // User not authenticated, will be redirected by router guard
     console.error('Failed to load user info:', error)
